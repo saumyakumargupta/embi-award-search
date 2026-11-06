@@ -52,6 +52,7 @@ class PortfolioControllerTest {
                 .andExpect(jsonPath("$.request.grantsQuery").value("aff:\"University of Manchester\""))
                 .andExpect(jsonPath("$.request.limit").value(5))
                 .andExpect(jsonPath("$.request.publicationsPerGrant").value(3))
+                .andExpect(jsonPath("$.grantSearch.source").value("EUROPE_PMC_GRANTS_API"))
                 .andExpect(jsonPath("$.grantSearch.totalHitCount").value(57))
                 .andExpect(jsonPath("$.grantSearch.truncated").value(true))
                 .andExpect(jsonPath("$.grants[0].funder.name").value("Medical Research Council"))

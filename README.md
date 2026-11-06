@@ -20,6 +20,27 @@ docker run --rm -p 8080:8080 institution-portfolio
 
 The Docker build runs the test suite in its build stage, so a failing test fails the image build.
 
+### Demo mode (when the Grants API is unavailable)
+
+During development the Europe PMC Grants API was unreachable while the Articles API worked. So that
+the service can still be demonstrated end to end, it has an opt-in demo mode:
+
+```bash
+docker run --rm -p 8080:8080 -e PORTFOLIO_GRIST_MODE=demo institution-portfolio
+# or: PORTFOLIO_GRIST_MODE=demo ./mvnw spring-boot:run
+```
+
+In demo mode only the Grants API step is replaced. Grants come from
+`src/main/resources/demo/grist-demo-records.json`, a fixture written in Grist's own JSON shape and
+read by the same parser as live responses. Publication lookups, linking, concurrency and failure
+handling all run live against the Articles API.
+
+The fixture covers Cambridge, Manchester, UCL, Edinburgh and Oxford. Its grant IDs and funders are
+real (taken from funding statements on Articles API papers with authors at those universities), but
+the institution assignment is illustrative, and titles, PIs and dates are left out rather than invented.
+Demo responses are clearly marked with `grantSearch.source: "DEMO_FIXTURE"` and a note, and a warning
+is logged at startup. The default mode is `live`.
+
 ## Example requests
 
 ```bash
@@ -59,7 +80,7 @@ Errors use RFC 9457 `application/problem+json`, with `parameter` for 400s and `u
 {
   "request":     { "institution": "...", "normalisedInstitution": "...", "grantsQuery": "aff:\"...\"",
                    "limit": 5, "publicationsPerGrant": 3 },
-  "grantSearch": { "totalHitCount": 312, "returned": 5, "truncated": true },
+  "grantSearch": { "source": "EUROPE_PMC_GRANTS_API", "totalHitCount": 312, "returned": 5, "truncated": true },
   "grants": [{
     "rank": 1,                                   // Grist order
     "grantId": "098051",
@@ -190,7 +211,7 @@ All tunables are in `application.yml` and can be overridden with environment var
 
 ## Tests
 
-`./mvnw test` runs 36 tests with no network access:
+`./mvnw test` runs 39 tests with no network access:
 
 | Test class | What it covers |
 |---|---|
@@ -199,6 +220,7 @@ All tunables are in `application.yml` and can be overridden with environment var
 | `GristResponseParserTest` | Normal records, single record as an object, missing fields, empty result |
 | `PublicationLinkerTest` | Confirmed, funder mismatch, unknown funder, no exact ID, DOI-form IDs |
 | `PortfolioServiceTest` | Order preserved under reversed completion; failure and timeout isolation; failed vs none-found; concurrency never exceeds the limit but does overlap; per-grant dedup with cross-grant duplicates kept; grants with no ID; limits |
+| `DemoGristClientTest` | Demo fixture filtering by affiliation, case-insensitive partial match, unknown institution |
 | `PortfolioControllerTest` | Full Spring wiring: JSON shape, defaults, 400s, 502 and 504 |
 
 ## Limitations
@@ -230,7 +252,8 @@ Europe PMC to catch schema drift.
 The shape and stability of Grist's JSON. During development the Grist endpoint closed every connection
 (from two different networks and a browser), so the Grist parser was written against the documented
 field model and made deliberately tolerant (array or object, optional fields, case-insensitive keys).
-The Articles side was verified live. Before production I would capture real Grist responses for
+The Articles side was verified live, and demo mode (see above) lets the rest of the pipeline be
+exercised meanwhile. Before production I would capture real Grist responses for
 several universities and add them as fixtures. I would also check how consistently `grantsList`
 agency names match Grist funder names, since that decides how many links are `CONFIRMED`.
 

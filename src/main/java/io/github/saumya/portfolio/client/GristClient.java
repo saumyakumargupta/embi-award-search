@@ -12,4 +12,9 @@ public interface GristClient {
      * @throws UpstreamException if Grist cannot be reached or answers unexpectedly
      */
     GrantSearchResult search(String gristQuery);
+
+    /** True when grants come from the bundled demo fixture rather than the live Grants API. */
+    default boolean isDemo() {
+        return false;
+    }
 }

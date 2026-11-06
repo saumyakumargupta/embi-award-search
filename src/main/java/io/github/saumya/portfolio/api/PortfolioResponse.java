@@ -24,8 +24,12 @@ public record PortfolioResponse(
             int publicationsPerGrant) {
     }
 
-    /** Facts about the Grist search itself. */
+    /**
+     * Facts about the Grist search itself. {@code source} is {@code EUROPE_PMC_GRANTS_API} normally and
+     * {@code DEMO_FIXTURE} when the service runs in demo mode.
+     */
     public record GrantSearch(
+            String source,
             Long totalHitCount,
             int returned,
             boolean truncated) {

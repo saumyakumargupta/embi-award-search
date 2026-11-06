@@ -99,10 +99,12 @@ public class PortfolioService {
 
         return new PortfolioResponse(
                 new PortfolioResponse.Request(institution, normalised, gristQuery, limit, publicationsPerGrant),
-                new PortfolioResponse.GrantSearch(search.hitCount(), grants.size(), truncated),
+                new PortfolioResponse.GrantSearch(
+                        gristClient.isDemo() ? "DEMO_FIXTURE" : "EUROPE_PMC_GRANTS_API",
+                        search.hitCount(), grants.size(), truncated),
                 entries,
                 summarise(entries),
-                notes(grants.isEmpty(), truncated));
+                notes(gristClient.isDemo(), grants.isEmpty(), truncated));
     }
 
     private List<GrantEntry> lookUpPublications(List<Grant> grants, String requestedName, int perGrant) {
@@ -252,8 +254,13 @@ public class PortfolioService {
                 entries.size(), byFunder, byStatus, associations, confirmed, associations - confirmed, unique.size());
     }
 
-    private static List<String> notes(boolean noGrants, boolean truncated) {
+    private static List<String> notes(boolean demo, boolean noGrants, boolean truncated) {
         List<String> notes = new ArrayList<>();
+        if (demo) {
+            notes.add("DEMO MODE: grants come from a bundled fixture, not the live Europe PMC Grants API. "
+                    + "Grant IDs and funders are real, but the institution assignment is illustrative and titles, "
+                    + "PIs and dates are absent. Publications are looked up live in the Articles API.");
+        }
         if (noGrants) {
             notes.add("No grants matched this affiliation in the Europe PMC Grants API. Try a variant of the "
                     + "name (e.g. 'Univ of X', 'X University', or a distinctive word such as the city).");

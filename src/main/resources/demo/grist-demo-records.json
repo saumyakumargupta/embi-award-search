@@ -1,0 +1,327 @@
+{
+  "_comment": "DEMO FIXTURE, not live Grants API data. Grant IDs and funders are real (taken from funding statements in the Europe PMC Articles API for papers with authors at these universities) but the institution assignment is illustrative and titles, PIs and dates are deliberately absent. Used only when portfolio.grist.mode=demo.",
+  "HitCount": 29,
+  "RecordList": {
+    "Record": [
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Medical Research Council"
+          },
+          "Id": "MC_UU_00014/5"
+        },
+        "Institution": {
+          "Name": "University of Cambridge"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "203151/Z/16/Z"
+        },
+        "Institution": {
+          "Name": "University of Cambridge"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Cancer Research UK"
+          },
+          "Id": "21762"
+        },
+        "Institution": {
+          "Name": "University of Cambridge"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "208363/Z/17/Z"
+        },
+        "Institution": {
+          "Name": "University of Cambridge"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Medical Research Council"
+          },
+          "Id": "MC_PC_17230"
+        },
+        "Institution": {
+          "Name": "University of Cambridge"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Cancer Research UK"
+          },
+          "Id": "24455"
+        },
+        "Institution": {
+          "Name": "University of Cambridge"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Medical Research Council"
+          },
+          "Id": "MR/L011840/1"
+        },
+        "Institution": {
+          "Name": "University of Manchester"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Biotechnology and Biological Sciences Research Council"
+          },
+          "Id": "BB/T001984/1"
+        },
+        "Institution": {
+          "Name": "University of Manchester"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "203128/Z/16/Z"
+        },
+        "Institution": {
+          "Name": "University of Manchester"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "105644/Z/14/Z"
+        },
+        "Institution": {
+          "Name": "University of Manchester"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Medical Research Council"
+          },
+          "Id": "MR/T016043/1"
+        },
+        "Institution": {
+          "Name": "University of Manchester"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Biotechnology and Biological Sciences Research Council"
+          },
+          "Id": "BB/T014482/1"
+        },
+        "Institution": {
+          "Name": "University of Manchester"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "204841/Z/16/Z"
+        },
+        "Institution": {
+          "Name": "University College London"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "209199/Z/17/Z"
+        },
+        "Institution": {
+          "Name": "University College London"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Biotechnology and Biological Sciences Research Council"
+          },
+          "Id": "BB/M009513/1"
+        },
+        "Institution": {
+          "Name": "University College London"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Cancer Research UK"
+          },
+          "Id": "30025"
+        },
+        "Institution": {
+          "Name": "University College London"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Biotechnology and Biological Sciences Research Council"
+          },
+          "Id": "BB/R01356X/1"
+        },
+        "Institution": {
+          "Name": "University College London"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "221890/Z/20/Z"
+        },
+        "Institution": {
+          "Name": "University of Edinburgh"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Medical Research Council"
+          },
+          "Id": "MR/R024065/1"
+        },
+        "Institution": {
+          "Name": "University of Edinburgh"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Biotechnology and Biological Sciences Research Council"
+          },
+          "Id": "BB/W008793/1"
+        },
+        "Institution": {
+          "Name": "University of Edinburgh"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "104036/Z/14/Z"
+        },
+        "Institution": {
+          "Name": "University of Edinburgh"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Medical Research Council"
+          },
+          "Id": "MR/X003434/1"
+        },
+        "Institution": {
+          "Name": "University of Edinburgh"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Cancer Research UK"
+          },
+          "Id": "18927"
+        },
+        "Institution": {
+          "Name": "University of Edinburgh"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "212946/Z/18/Z"
+        },
+        "Institution": {
+          "Name": "University of Oxford"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Medical Research Council"
+          },
+          "Id": "MC_UU_00017/1"
+        },
+        "Institution": {
+          "Name": "University of Oxford"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Biotechnology and Biological Sciences Research Council"
+          },
+          "Id": "BB/R007195/1"
+        },
+        "Institution": {
+          "Name": "University of Oxford"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Wellcome Trust"
+          },
+          "Id": "107457/Z/15/Z"
+        },
+        "Institution": {
+          "Name": "University of Oxford"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Cancer Research UK"
+          },
+          "Id": "29186"
+        },
+        "Institution": {
+          "Name": "University of Oxford"
+        }
+      },
+      {
+        "Grant": {
+          "Funder": {
+            "Name": "Biotechnology and Biological Sciences Research Council"
+          },
+          "Id": "BB/K017462/1"
+        },
+        "Institution": {
+          "Name": "University of Oxford"
+        }
+      }
+    ]
+  }
+}

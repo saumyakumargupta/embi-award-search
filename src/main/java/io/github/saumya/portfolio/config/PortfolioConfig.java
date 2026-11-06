@@ -2,6 +2,9 @@ package io.github.saumya.portfolio.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.saumya.portfolio.client.ArticlesClient;
+import io.github.saumya.portfolio.client.DemoGristClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.github.saumya.portfolio.client.GristClient;
 import io.github.saumya.portfolio.client.HttpArticlesClient;
 import io.github.saumya.portfolio.client.HttpGristClient;
@@ -22,6 +25,8 @@ import java.util.concurrent.Executors;
 @EnableConfigurationProperties(PortfolioProperties.class)
 public class PortfolioConfig {
 
+    private static final Logger log = LoggerFactory.getLogger(PortfolioConfig.class);
+
     private static final String USER_AGENT = "institution-portfolio/0.1 (take-home exercise)";
 
     @Bean
@@ -38,6 +43,11 @@ public class PortfolioConfig {
 
     @Bean
     GristClient gristClient(HttpClient httpClient, ObjectMapper mapper, PortfolioProperties props) {
+        if (props.grist().mode() == PortfolioProperties.Mode.DEMO) {
+            log.warn("DEMO MODE: grants come from the bundled fixture {}, not the live Europe PMC Grants API. "
+                    + "Publication lookups still use the live Articles API.", DemoGristClient.DEFAULT_FIXTURE);
+            return new DemoGristClient(mapper, DemoGristClient.DEFAULT_FIXTURE);
+        }
         return new HttpGristClient(restClient(httpClient, props.grist().readTimeout()), mapper, props.grist().baseUrl());
     }
 

@@ -19,6 +19,9 @@ portfolio:
   grist:
     base-url: https://www.ebi.ac.uk/europepmc/GristAPI
     read-timeout: 15s
+    # live: call the Grants API. demo: use src/main/resources/demo/grist-demo-records.json instead
+    # (for when the Grants API is unavailable). Override with PORTFOLIO_GRIST_MODE=demo.
+    mode: live
   articles:
     base-url: https://www.ebi.ac.uk/europepmc/webservices/rest
     read-timeout: 8s
