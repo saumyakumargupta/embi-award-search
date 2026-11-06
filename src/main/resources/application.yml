@@ -1,0 +1,28 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: institution-portfolio
+  jackson:
+    serialization:
+      indent-output: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+portfolio:
+  connect-timeout: 3s
+  grist:
+    base-url: https://www.ebi.ac.uk/europepmc/GristAPI
+    read-timeout: 15s
+  articles:
+    base-url: https://www.ebi.ac.uk/europepmc/webservices/rest
+    read-timeout: 8s
+    # Articles API calls allowed in flight at once, shared by all incoming requests.
+    max-concurrent: 4
+    # Upper bound on waiting for one request's article lookups, including time queued for a permit.
+    lookup-deadline: 20s
