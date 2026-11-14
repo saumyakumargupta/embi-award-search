@@ -40,7 +40,7 @@ class PortfolioControllerTest {
 
     @Test
     void returnsPortfolioJson() throws Exception {
-        when(grist.search("aff:\"University of Manchester\"")).thenReturn(new GrantSearchResult(57L, List.of(
+        when(grist.search("aff:\"University of Manchester\"", 1)).thenReturn(new GrantSearchResult(57L, List.of(
                 new Grant("MR/1", "A grant", "Medical Research Council", null, "University of Manchester",
                         null, "Dr A Person", "2019-01-01", "2023-01-01"))));
         when(articles.search(eq("GRANT_ID:\"MR/1\""), anyInt())).thenReturn(new ArticleSearchResult(9, List.of(
@@ -79,7 +79,7 @@ class PortfolioControllerTest {
 
     @Test
     void grantsApiFailureIs502AndTimeoutIs504() throws Exception {
-        when(grist.search(anyString()))
+        when(grist.search(anyString(), anyInt()))
                 .thenThrow(new UpstreamException("Europe PMC Grants API", UpstreamException.Kind.UNAVAILABLE,
                         null, "Europe PMC Grants API could not be reached", null))
                 .thenThrow(new UpstreamException("Europe PMC Grants API", UpstreamException.Kind.TIMEOUT,

@@ -67,7 +67,7 @@ public class PortfolioConfig {
     PortfolioService portfolioService(GristClient grist, ArticlesClient articles,
                                       ExecutorService articleLookupExecutor, PortfolioProperties props) {
         return new PortfolioService(grist, articles, articleLookupExecutor,
-                props.articles().maxConcurrent(), props.articles().lookupDeadline());
+                props.articles().maxConcurrent(), props.articles().lookupDeadline(), props.grist().maxPages());
     }
 
     private static RestClient restClient(HttpClient httpClient, Duration readTimeout) {

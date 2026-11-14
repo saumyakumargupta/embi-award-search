@@ -22,6 +22,9 @@ portfolio:
     # live: call the Grants API. demo: use src/main/resources/demo/grist-demo-records.json instead
     # (for when the Grants API is unavailable). Override with PORTFOLIO_GRIST_MODE=demo.
     mode: live
+    # The Grants API returns one record per person on a grant (25 records per page), so one page can hold
+    # only a handful of distinct grants. Read up to this many pages to reach the requested number.
+    max-pages: 3
   articles:
     base-url: https://www.ebi.ac.uk/europepmc/webservices/rest
     read-timeout: 8s

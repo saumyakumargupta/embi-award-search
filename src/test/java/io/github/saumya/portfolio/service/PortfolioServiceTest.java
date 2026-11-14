@@ -53,7 +53,7 @@ class PortfolioServiceTest {
 
     private PortfolioService service(List<Grant> grants, Function<String, ArticleSearchResult> articles,
                                      int maxConcurrent, Duration deadline) {
-        GristClient grist = q -> new GrantSearchResult((long) grants.size() + 100, grants);
+        GristClient grist = (q, page) -> new GrantSearchResult((long) grants.size() + 100, grants);
         ArticlesClient articlesClient = (q, size) -> articles.apply(grantIdOf(q));
         return new PortfolioService(grist, articlesClient, executor, maxConcurrent, deadline);
     }
@@ -177,7 +177,7 @@ class PortfolioServiceTest {
                 .isEqualTo(LookupStatus.NOT_SEARCHED_NO_GRANT_ID);
         assertThat(response.summary().grantsByFunder()).containsEntry("(unknown funder)", 1);
 
-        PortfolioResponse empty = new PortfolioService(q -> new GrantSearchResult(0L, List.of()),
+        PortfolioResponse empty = new PortfolioService((q, page) -> new GrantSearchResult(0L, List.of()),
                 (q, s) -> { throw new AssertionError("should not be called"); },
                 executor, 2, Duration.ofSeconds(1)).buildPortfolio("Nowhere University", 5, 3);
         assertThat(empty.grants()).isEmpty();
@@ -201,6 +201,84 @@ class PortfolioServiceTest {
         assertThatThrownBy(() -> service.buildPortfolio("Leeds", 11, 3)).isInstanceOf(InvalidRequestException.class);
         assertThatThrownBy(() -> service.buildPortfolio("Leeds", 0, 3)).isInstanceOf(InvalidRequestException.class);
         assertThatThrownBy(() -> service.buildPortfolio("Leeds", 5, 6)).isInstanceOf(InvalidRequestException.class);
+    }
+
+    /** 25 records for 5 grants (one per person), like a real Grist page for a well-connected grant. */
+    private static List<Grant> pageOfDuplicates(String prefix) {
+        List<Grant> records = new ArrayList<>();
+        for (int g = 1; g <= 5; g++) {
+            for (int person = 1; person <= 5; person++) {
+                String institution = person == 3 ? "University of Cambridge" : "Collaborator University " + person;
+                records.add(new Grant(prefix + g, "t", "Wellcome Trust", null, institution, null, null, null, null));
+            }
+        }
+        return records;
+    }
+
+    @Test
+    void readsFurtherPagesUntilEnoughDistinctGrants() {
+        List<Integer> pagesAsked = new ArrayList<>();
+        GristClient grist = (q, page) -> {
+            pagesAsked.add(page);
+            return new GrantSearchResult(500L, pageOfDuplicates("P" + page + "-"));
+        };
+        PortfolioService service = new PortfolioService(grist, (q, size) -> new ArticleSearchResult(0, List.of()),
+                executor, 2, Duration.ofSeconds(5), 3);
+
+        PortfolioResponse response = service.buildPortfolio("University of Cambridge", 8, 1);
+
+        // Page 1 gives 5 distinct grants, page 2 brings it to 10 (> 8), so page 3 is not needed.
+        assertThat(pagesAsked).containsExactly(1, 2);
+        assertThat(response.grants()).hasSize(8);
+        assertThat(response.grantSearch().recordsFetched()).isEqualTo(50);
+        assertThat(response.grantSearch().distinctGrantsFound()).isEqualTo(10);
+        assertThat(response.grants()).allSatisfy(g -> {
+            assertThat(g.institution().name()).isEqualTo("University of Cambridge");
+            assertThat(g.allInstitutions()).hasSize(5);
+        });
+    }
+
+    @Test
+    void neverReadsMoreThanMaxPages() {
+        List<Integer> pagesAsked = new ArrayList<>();
+        GristClient grist = (q, page) -> {
+            pagesAsked.add(page);
+            return new GrantSearchResult(500L, pageOfDuplicates("P" + page + "-"));
+        };
+        PortfolioService service = new PortfolioService(grist, (q, size) -> new ArticleSearchResult(0, List.of()),
+                executor, 2, Duration.ofSeconds(5), 1);
+
+        PortfolioResponse response = service.buildPortfolio("University of Cambridge", 10, 1);
+
+        assertThat(pagesAsked).containsExactly(1);
+        assertThat(response.grants()).hasSize(5);
+        assertThat(response.grantSearch().truncated()).isTrue();
+        assertThat(response.notes()).anySatisfy(n -> assertThat(n).startsWith("Only the first 1 Grants API pages"));
+    }
+
+    @Test
+    void laterPageFailureKeepsWhatWasFoundButFirstPageFailurePropagates() {
+        GristClient flaky = (q, page) -> {
+            if (page == 2) {
+                throw new UpstreamException("Europe PMC Grants API", UpstreamException.Kind.TIMEOUT, null,
+                        "Europe PMC Grants API did not respond in time", null);
+            }
+            return new GrantSearchResult(500L, pageOfDuplicates("P1-"));
+        };
+        PortfolioResponse response = new PortfolioService(flaky, (q, size) -> new ArticleSearchResult(0, List.of()),
+                executor, 2, Duration.ofSeconds(5), 3).buildPortfolio("University of Cambridge", 10, 1);
+
+        assertThat(response.grants()).hasSize(5);
+        assertThat(response.grantSearch().pagesFetched()).isEqualTo(1);
+        assertThat(response.notes()).anySatisfy(n -> assertThat(n).contains("Stopped reading further Grants API pages"));
+
+        GristClient down = (q, page) -> {
+            throw new UpstreamException("Europe PMC Grants API", UpstreamException.Kind.UNAVAILABLE, null,
+                    "Europe PMC Grants API could not be reached", null);
+        };
+        assertThatThrownBy(() -> new PortfolioService(down, (q, size) -> new ArticleSearchResult(0, List.of()),
+                executor, 2, Duration.ofSeconds(5)).buildPortfolio("University of Cambridge", 5, 1))
+                .isInstanceOf(UpstreamException.class);
     }
 
     private static void sleep(long ms) {

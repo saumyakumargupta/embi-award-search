@@ -17,7 +17,7 @@ import java.util.List;
  *     { "Person":      { "FamilyName": "...", "GivenName": "...", "Initials": "..." },
  *       "Grant":       { "Id": "...", "Title": "...", "Funder": { "Name": "...", "FundRefID": "..." },
  *                        "StartDate": "...", "EndDate": "..." },
- *       "Institution": { "Name": "...", "Department": "..." } } ] } }
+ *       "Institution": { "Name": "...", "Department": "...", "RORID": "..." } } ] } }
  * </pre>
  * Every element is treated as optional, {@code Record} may be a single object instead of an array,
  * and an absent {@code RecordList} is read as "no grants".
@@ -59,7 +59,21 @@ public final class GristResponseParser {
                 Json.text(institution, "Department"),
                 personName(Json.child(record, "Person")),
                 Json.text(grant, "StartDate"),
-                Json.text(grant, "EndDate"));
+                Json.text(grant, "EndDate"),
+                rorId(Json.text(institution, "RORID")));
+    }
+
+    /**
+     * Grist writes ROR IDs both as {@code 027m9bs27} and as {@code https://ror.org/027m9bs27};
+     * keep only the ID so the same institution always compares equal.
+     */
+    static String rorId(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        int slash = raw.lastIndexOf('/');
+        String id = slash >= 0 ? raw.substring(slash + 1) : raw;
+        return id.isBlank() ? null : id;
     }
 
     private static String personName(JsonNode person) {

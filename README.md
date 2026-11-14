@@ -22,8 +22,9 @@ The Docker build runs the test suite in its build stage, so a failing test fails
 
 ### Demo mode (when the Grants API is unavailable)
 
-During development the Europe PMC Grants API was unreachable while the Articles API worked. So that
-the service can still be demonstrated end to end, it has an opt-in demo mode:
+For about a week during development the Europe PMC Grants API was unreachable while the Articles API
+worked. It is back, and the live mode has since been tested against it (see "Institution matching").
+So that the service can still be demonstrated end to end during an outage, it keeps an opt-in demo mode:
 
 ```bash
 docker run --rm -p 8080:8080 -e PORTFOLIO_GRIST_MODE=demo institution-portfolio
@@ -80,14 +81,17 @@ Errors use RFC 9457 `application/problem+json`, with `parameter` for 400s and `u
 {
   "request":     { "institution": "...", "normalisedInstitution": "...", "grantsQuery": "aff:\"...\"",
                    "limit": 5, "publicationsPerGrant": 3 },
-  "grantSearch": { "source": "EUROPE_PMC_GRANTS_API", "totalHitCount": 312, "returned": 5, "truncated": true },
+  "grantSearch": { "source": "EUROPE_PMC_GRANTS_API", "totalHitCount": 3265,   // Grist records, not grants
+                   "pagesFetched": 2, "recordsFetched": 50, "distinctGrantsFound": 23,
+                   "returned": 5, "truncated": true },
   "grants": [{
-    "rank": 1,                                   // Grist order
-    "grantId": "098051",
+    "rank": 1,                                   // Grist order, after merging per-person records
+    "grantId": "340947",
     "title": "...",
-    "funder":      { "name": "Wellcome Trust", "fundRefId": "..." },
-    "institution": { "name": "University of Cambridge", "department": "...", "nameMatch": "EXACT" },
-    "principalInvestigator": "...", "startDate": "...", "endDate": "...",
+    "funder":      { "name": "Wellcome Trust", "fundRefId": "https://doi.org/10.13039/100010269" },
+    "institution": { "name": "University of Manchester", "rorId": "027m9bs27", "nameMatch": "EXACT" },
+    "allInstitutions": [ "University of Illinois Chicago", "University of Dundee", "...", "University of Manchester" ],
+    "principalInvestigator": "...", "startDate": "2026-09-01", "endDate": "2032-09-01",
     "publicationLookup": { "status": "PUBLICATIONS_FOUND", "query": "GRANT_ID:\"098051\"",
                            "totalHitCount": 1261 },
     "publications": [{
@@ -125,7 +129,8 @@ PortfolioController  ->  PortfolioService  ->  GristClient    (HttpGristClient)
   lets the service tests replace Europe PMC with simple lambdas.
 * Upstream JSON is read as a `JsonNode` tree by small parsers rather than mapped onto rigid DTOs.
   Every field is optional, a repeated element may be a single object instead of an array, and text
-  may arrive as `{"$": "..."}`. Missing data becomes `null`, never an exception.
+  may arrive wrapped as `{"value": "..."}` (as live Grist abstracts and amounts do). Missing data
+  becomes `null`, never an exception.
 * The Articles API is called with `resultType=core` because only the core result includes each
   article's `grantsList`, which is needed to check the funder (see below). The page size equals
   `publicationsPerGrant`, so payloads stay small.
@@ -139,15 +144,31 @@ PortfolioController  ->  PortfolioService  ->  GristClient    (HttpGristClient)
 3. Grist takes the query in the URL path (`/rest/get/query=...&format=json`), so the query is
    percent-encoded by hand, including `&` as `%26`, so `Texas A&M University` is not split into
    parameters. The URI is passed to the HTTP client pre-built so it is not encoded twice.
-4. Results are returned in Grist order, first page only, capped at `limit`.
-5. Each grant reports `institution.nameMatch`: `EXACT` if the reported name equals the request
-   (ignoring case), otherwise `PARTIAL`. `aff:` also searches departments and partial names, so
-   `aff:"Cambridge"` can return institutes that are not the university. `PARTIAL` makes that visible
-   instead of hiding it.
+4. **Grist returns one record per person on a grant, not one per grant.** Testing against the live API
+   showed that a grant with collaborators elsewhere appears once for each person: grant `352259`
+   appears 8 times on the first `aff:"University of Manchester"` page, once for the Manchester PI and
+   once each for collaborators in Bristol, Liverpool and Malawi, and the Bristol record comes first.
+   The first 25-record page held 10 distinct grants for Manchester and only 5 for Cambridge.
+   `GrantGrouper` therefore merges records with the same funder and grant ID, keeps the order in which
+   each grant first appears (Grist order), represents each grant by the record whose institution best
+   matches the request, and lists every institution seen in `allInstitutions`.
+5. If a page does not yield more than `limit` distinct grants, the next page is read, up to
+   `portfolio.grist.max-pages` (default 3, i.e. 75 records). Reading one page past `limit` means the
+   last grant shown has all its records and `truncated` is accurate. The brief says one page
+   suffices; with one record per person, one page often cannot supply 10 grants, so this is a
+   deliberate extension. A failure on page 1 fails the request; a failure on a later page keeps what
+   was found and says so in `notes`.
+6. Each grant reports `institution.nameMatch` for its representative record: `EXACT` (same name,
+   ignoring case), `PARTIAL` (one contains the other, e.g. `aff:"Cambridge"` and "University of
+   Cambridge"), `OTHER` (even the best record names a different institution) or `UNKNOWN`.
+   `institution.rorId` carries the ROR ID, normalised because Grist writes it both as `013meh722`
+   and as `https://ror.org/013meh722`.
 
 Limitations: no synonym or variant expansion ("UCL" and "University College London" are different
-searches), no ROR lookup, and Grist only indexes awards from its participating funders. The affiliation
-is that of the award holder; a university's grants held elsewhere, or not indexed, are absent.
+searches), the request is not resolved to a ROR ID before searching, and Grist only indexes awards
+from its participating funders. Grist lists the most recent awards first (on 14 November 2026 the
+first Manchester grants started between June 2026 and January 2027), so many returned grants are too
+new to have papers yet; `NO_PUBLICATIONS_FOUND` is common for that reason.
 
 ### Grant to publication linking
 
@@ -187,7 +208,7 @@ where present.
 
 ## Concurrency and failure handling
 
-* After the single Grist call, one task per grant is submitted to a virtual-thread executor, so all
+* After the Grist pages are read and merged, one task per distinct grant is submitted to a virtual-thread executor, so all
   lookups for a request start together and overlap.
 * A fair `Semaphore` owned by the service caps Articles API calls in flight at **4**
   (`portfolio.articles.max-concurrent`). Because it is shared by all incoming requests, ten users
@@ -207,29 +228,35 @@ where present.
   corporate proxy configured with `-Dhttps.proxyHost`.
 
 All tunables are in `application.yml` and can be overridden with environment variables, for example
-`docker run -e PORTFOLIO_ARTICLES_MAX_CONCURRENT=2 ...`.
+`docker run -e PORTFOLIO_ARTICLES_MAX_CONCURRENT=2 ...` or `-e PORTFOLIO_GRIST_MAX_PAGES=1`.
 
 ## Tests
 
-`./mvnw test` runs 39 tests with no network access:
+`./mvnw test` runs 47 tests with no network access:
 
 | Test class | What it covers |
 |---|---|
 | `QueryBuilderTest` | Phrase construction, whitespace cleaning, phrase-injection, accents and `&`, rejected input |
 | `HttpClientsTest` | Exact encoded Grist path and Articles URL; parsing; 503 and HTML-body error mapping (MockRestServiceServer) |
-| `GristResponseParserTest` | Normal records, single record as an object, missing fields, empty result |
+| `GristResponseParserTest` | Normal records, single record as an object, missing fields, empty result, and the live format (`value` wrappers, both ROR ID spellings) |
+| `GrantGrouperTest` | Per-person records merged into one grant in first-appearance order, best-matching record chosen, same ID from different funders kept apart, `nameMatch` values |
 | `PublicationLinkerTest` | Confirmed, funder mismatch, unknown funder, no exact ID, DOI-form IDs |
-| `PortfolioServiceTest` | Order preserved under reversed completion; failure and timeout isolation; failed vs none-found; concurrency never exceeds the limit but does overlap; per-grant dedup with cross-grant duplicates kept; grants with no ID; limits |
+| `PortfolioServiceTest` | Order preserved under reversed completion; failure and timeout isolation; failed vs none-found; concurrency never exceeds the limit but does overlap; per-grant dedup with cross-grant duplicates kept; grants with no ID; limits; reading more pages until enough distinct grants, the page cap, and failure on a later page vs the first |
 | `DemoGristClientTest` | Demo fixture filtering by affiliation, case-insensitive partial match, unknown institution |
 | `PortfolioControllerTest` | Full Spring wiring: JSON shape, defaults, 400s, 502 and 504 |
 
 ## Limitations
 
-* One Grist page (25 records) is read, so at most the first 10 grants in Grist's order are returned.
-  `grantSearch.truncated` and `totalHitCount` say when more exist.
+* At most `max-pages` Grist pages (75 records by default) are read, so a grant list dominated by large
+  collaborations can still return fewer than `limit` grants; a note says so. `totalHitCount` is
+  Grist's record count, not a grant count.
+* Grist lists the newest awards first, so many returned grants have no papers yet.
 * Summary counts describe only the returned sample, and say so in the response.
 * Funder matching is string-based. An MRC grant acknowledged as "UK Research and Innovation" (MRC's
-  parent body) is reported as `UNCERTAIN_FUNDER_MISMATCH` even though it is probably correct.
+  parent body) is reported as `UNCERTAIN_FUNDER_MISMATCH` even though it is probably correct. The
+  check also earns its keep: live, Wellcome grant `340947` at Manchester shares its number with a
+  Canadian Institutes of Health Research grant, and the paper found belongs to the Canadian one; it
+  is correctly reported as `UNCERTAIN_FUNDER_MISMATCH` rather than confirmed.
 * Publications are taken in Articles API relevance order, so uncertain matches can take slots that
   a confirmed match lower down would have filled.
 * No caching. Repeated requests for the same university repeat every upstream call.
@@ -249,13 +276,15 @@ FundRef IDs), a short-lived cache keyed by query, and a contract test run on a s
 Europe PMC to catch schema drift.
 
 **Which assumption about Europe PMC data would I validate before production?**
-The shape and stability of Grist's JSON. During development the Grist endpoint closed every connection
-(from two different networks and a browser), so the Grist parser was written against the documented
-field model and made deliberately tolerant (array or object, optional fields, case-insensitive keys).
-The Articles side was verified live, and demo mode (see above) lets the rest of the pipeline be
-exercised meanwhile. Before production I would capture real Grist responses for
-several universities and add them as fixtures. I would also check how consistently `grantsList`
-agency names match Grist funder names, since that decides how many links are `CONFIRMED`.
+What a Grist record represents. The Grist endpoint was unreachable for most of development, so the
+parser was written against the documented field model and made deliberately tolerant. When the API
+came back, the field names matched, but the assumption that one record is one grant did not: Grist
+returns one record per person, so the same grant appeared up to 8 times on a page and the first
+record could name a collaborator's institution. That is now handled by merging records and paging.
+Before production I would validate this further on many institutions (for example whether one grant's
+records are always adjacent, and how `HitCount` relates to distinct grants), and check how
+consistently `grantsList` agency names match Grist funder names, since that decides how many links
+are `CONFIRMED`.
 
 **Which piece of technical debt did I deliberately accept?**
 Funder matching by normalised string comparison instead of a curated funder identity map. It is simple

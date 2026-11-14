@@ -25,12 +25,23 @@ public record PortfolioResponse(
     }
 
     /**
-     * Facts about the Grist search itself. {@code source} is {@code EUROPE_PMC_GRANTS_API} normally and
-     * {@code DEMO_FIXTURE} when the service runs in demo mode.
+     * Facts about the Grist search itself.
+     *
+     * @param source              {@code EUROPE_PMC_GRANTS_API}, or {@code DEMO_FIXTURE} in demo mode
+     * @param totalHitCount       Grist's HitCount. Grist counts records (one per person on a grant),
+     *                            so this is larger than the number of distinct grants
+     * @param pagesFetched        Grist pages read to collect enough distinct grants (25 records per page)
+     * @param recordsFetched      records read across those pages
+     * @param distinctGrantsFound distinct grants among those records, after merging per-person records
+     * @param returned            grants in this response ({@code <= limit})
+     * @param truncated           true when more matching grants exist than were returned
      */
     public record GrantSearch(
             String source,
             Long totalHitCount,
+            int pagesFetched,
+            int recordsFetched,
+            int distinctGrantsFound,
             int returned,
             boolean truncated) {
     }
@@ -42,6 +53,7 @@ public record PortfolioResponse(
             String title,
             Funder funder,
             Institution institution,
+            List<String> allInstitutions,
             String principalInvestigator,
             String startDate,
             String endDate,
@@ -54,14 +66,19 @@ public record PortfolioResponse(
     }
 
     /**
-     * Institution as reported on the grant record. {@code nameMatch} says whether the reported name equals
-     * the requested name (ignoring case) or only contains/relates to it via Grist's affiliation search.
+     * The institution on the grant record chosen to represent the grant: the one that best matches the
+     * requested name. {@code rorId} is the Research Organization Registry ID when Grist provides it.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Institution(String name, String department, NameMatch nameMatch) {
+    public record Institution(String name, String department, String rorId, NameMatch nameMatch) {
     }
 
-    public enum NameMatch { EXACT, PARTIAL, UNKNOWN }
+    /**
+     * How the representative institution relates to the requested name. Declared best-first.
+     * OTHER means even the best record on this grant names a different institution (for example a
+     * collaborator's), so the grant matched the affiliation search through another field or person.
+     */
+    public enum NameMatch { EXACT, PARTIAL, OTHER, UNKNOWN }
 
     /** Outcome of the Articles API lookup for one grant. */
     @JsonInclude(JsonInclude.Include.NON_NULL)

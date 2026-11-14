@@ -14,7 +14,7 @@ class DemoGristClientTest {
 
     @Test
     void filtersBundledRecordsByAffiliationPhrase() {
-        GrantSearchResult result = client.search("aff:\"University of Manchester\"");
+        GrantSearchResult result = client.search("aff:\"University of Manchester\"", 1);
 
         assertThat(result.grants()).isNotEmpty();
         assertThat(result.hitCount()).isEqualTo((long) result.grants().size());
@@ -27,14 +27,14 @@ class DemoGristClientTest {
 
     @Test
     void matchingIsCaseInsensitiveAndPartialLikeGrist() {
-        GrantSearchResult result = client.search("aff:\"cambridge\"");
+        GrantSearchResult result = client.search("aff:\"cambridge\"", 1);
 
         assertThat(result.grants()).extracting(Grant::institutionName).containsOnly("University of Cambridge");
     }
 
     @Test
     void unknownInstitutionGivesEmptyResult() {
-        GrantSearchResult result = client.search("aff:\"University of Nowhere\"");
+        GrantSearchResult result = client.search("aff:\"University of Nowhere\"", 1);
 
         assertThat(result.grants()).isEmpty();
         assertThat(result.hitCount()).isZero();

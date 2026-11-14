@@ -25,11 +25,11 @@ class HttpClientsTest {
     void gristQueryIsPercentEncodedIntoThePath() {
         HttpGristClient client = new HttpGristClient(RestClient.create(), mapper, "https://example.org/GristAPI/");
 
-        URI uri = client.buildUri("aff:\"Texas A&M University\"");
+        URI uri = client.buildUri("aff:\"Texas A&M University\"", 2);
 
         // & inside the name must not be read as Grist's parameter separator.
         assertThat(uri.toString()).isEqualTo("https://example.org/GristAPI/rest/get/query="
-                + "aff:%22Texas%20A%26M%20University%22&resultType=core&format=json&page=1");
+                + "aff:%22Texas%20A%26M%20University%22&resultType=core&format=json&page=2");
     }
 
     @Test
@@ -77,12 +77,12 @@ class HttpClientsTest {
                 .andRespond(withSuccess("<html>maintenance</html>", MediaType.TEXT_HTML));
         HttpGristClient client = new HttpGristClient(builder.build(), mapper, "https://example.org/GristAPI");
 
-        assertThatThrownBy(() -> client.search("aff:\"X\""))
+        assertThatThrownBy(() -> client.search("aff:\"X\"", 1))
                 .isInstanceOfSatisfying(UpstreamException.class, e -> {
                     assertThat(e.kind()).isEqualTo(UpstreamException.Kind.HTTP_ERROR);
                     assertThat(e.upstreamStatus()).isEqualTo(503);
                 });
-        assertThatThrownBy(() -> client.search("aff:\"X\""))
+        assertThatThrownBy(() -> client.search("aff:\"X\"", 1))
                 .isInstanceOfSatisfying(UpstreamException.class,
                         e -> assertThat(e.kind()).isEqualTo(UpstreamException.Kind.BAD_RESPONSE));
     }

@@ -11,7 +11,7 @@ import java.util.Map;
  * Small, null-safe helpers for reading loosely structured upstream JSON.
  *
  * <p>Europe PMC JSON is partly generated from XML, so a repeatable element can arrive either as an
- * array or as a single object, text can arrive as a plain string or as {@code {"$": "..."}}, and
+ * array or as a single object, text can arrive as a plain string or wrapped as {@code {"value": "..."}} (or {@code {"$": "..."}}), and
  * field-name casing is not something we want to depend on.
  */
 final class Json {
@@ -65,7 +65,8 @@ final class Json {
     }
 
     /**
-     * Extracts text from a scalar, from an XML-style {@code {"$": "..."}} object, or from the first
+     * Extracts text from a scalar, from an XML-style {@code {"value": "..."}} or {@code {"$": "..."}}
+     * object (the live Grants API uses {@code value}, e.g. for abstracts and amounts), or from the first
      * element of an array. Blank values become null.
      */
     static String text(JsonNode node) {
@@ -76,7 +77,7 @@ final class Json {
             return node.isEmpty() ? null : text(node.get(0));
         }
         if (node.isObject()) {
-            JsonNode value = node.get("$");
+            JsonNode value = node.has("value") ? node.get("value") : node.get("$");
             return value == null ? null : text(value);
         }
         String value = node.asText().trim();

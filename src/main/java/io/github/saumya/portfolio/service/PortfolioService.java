@@ -5,7 +5,6 @@ import io.github.saumya.portfolio.api.PortfolioResponse.Funder;
 import io.github.saumya.portfolio.api.PortfolioResponse.GrantEntry;
 import io.github.saumya.portfolio.api.PortfolioResponse.Institution;
 import io.github.saumya.portfolio.api.PortfolioResponse.LookupStatus;
-import io.github.saumya.portfolio.api.PortfolioResponse.NameMatch;
 import io.github.saumya.portfolio.api.PortfolioResponse.Publication;
 import io.github.saumya.portfolio.api.PortfolioResponse.PublicationLookup;
 import io.github.saumya.portfolio.client.ArticlesClient;
@@ -15,6 +14,7 @@ import io.github.saumya.portfolio.domain.Article;
 import io.github.saumya.portfolio.domain.ArticleSearchResult;
 import io.github.saumya.portfolio.domain.Grant;
 import io.github.saumya.portfolio.domain.GrantSearchResult;
+import io.github.saumya.portfolio.service.GrantGrouper.GroupedGrant;
 import io.github.saumya.portfolio.service.PublicationLinker.Association;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +36,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Builds an institution portfolio: one Grist search, then one Articles API lookup per grant.
+ * Builds an institution portfolio: a Grist search, then one Articles API lookup per distinct grant.
+ *
+ * <p><b>Grants.</b> Grist returns one record per person on a grant, so the same grant can appear many
+ * times on a page. Records are merged into distinct grants by {@link GrantGrouper}, in Grist order. If a
+ * page does not yield enough distinct grants, further pages are read, up to {@code maxGristPages}.
  *
  * <p><b>Concurrency.</b> Article lookups are independent, so each runs as its own task on the supplied
  * executor (virtual threads in production). A {@link Semaphore} shared by the whole service caps how many
@@ -60,15 +64,32 @@ public class PortfolioService {
     private final ExecutorService executor;
     private final Semaphore articlePermits;
     private final Duration lookupDeadline;
+    private final int maxGristPages;
+
+    public static final int DEFAULT_MAX_GRIST_PAGES = 3;
 
     public PortfolioService(GristClient gristClient,
                             ArticlesClient articlesClient,
                             ExecutorService executor,
                             int maxConcurrentArticleLookups,
                             Duration lookupDeadline) {
+        this(gristClient, articlesClient, executor, maxConcurrentArticleLookups, lookupDeadline,
+                DEFAULT_MAX_GRIST_PAGES);
+    }
+
+    public PortfolioService(GristClient gristClient,
+                            ArticlesClient articlesClient,
+                            ExecutorService executor,
+                            int maxConcurrentArticleLookups,
+                            Duration lookupDeadline,
+                            int maxGristPages) {
         if (maxConcurrentArticleLookups < 1) {
             throw new IllegalArgumentException("maxConcurrentArticleLookups must be >= 1");
         }
+        if (maxGristPages < 1) {
+            throw new IllegalArgumentException("maxGristPages must be >= 1");
+        }
+        this.maxGristPages = maxGristPages;
         this.gristClient = gristClient;
         this.articlesClient = articlesClient;
         this.executor = executor;
@@ -87,51 +108,97 @@ public class PortfolioService {
         String normalised = QueryBuilder.normaliseInstitution(institution);
         String gristQuery = QueryBuilder.gristAffiliationQuery(normalised);
 
-        // A Grist failure propagates as UpstreamException and becomes a 502/504 for the whole request.
-        GrantSearchResult search = gristClient.search(gristQuery);
-        List<Grant> grants = search.grants().stream().limit(limit).toList();
+        GristPages found = fetchDistinctGrants(gristQuery, normalised, limit);
+        List<GroupedGrant> grants = found.grants().subList(0, Math.min(limit, found.grants().size()));
 
-        List<GrantEntry> entries = lookUpPublications(grants, normalised, publicationsPerGrant);
+        List<GrantEntry> entries = lookUpPublications(grants, publicationsPerGrant);
 
-        boolean truncated = search.hitCount() != null
-                ? search.hitCount() > grants.size()
-                : search.grants().size() > grants.size();
+        boolean truncated = found.grants().size() > grants.size()
+                || (found.hitCount() != null && found.records() < found.hitCount());
 
         return new PortfolioResponse(
                 new PortfolioResponse.Request(institution, normalised, gristQuery, limit, publicationsPerGrant),
                 new PortfolioResponse.GrantSearch(
                         gristClient.isDemo() ? "DEMO_FIXTURE" : "EUROPE_PMC_GRANTS_API",
-                        search.hitCount(), grants.size(), truncated),
+                        found.hitCount(), found.pages(), found.records(), found.grants().size(),
+                        grants.size(), truncated),
                 entries,
                 summarise(entries),
-                notes(gristClient.isDemo(), grants.isEmpty(), truncated));
+                notes(gristClient.isDemo(), found, grants.size(), limit, truncated));
     }
 
-    private List<GrantEntry> lookUpPublications(List<Grant> grants, String requestedName, int perGrant) {
+    /** What was read from Grist: totals, and the distinct grants in Grist order. */
+    record GristPages(Long hitCount, int pages, int records, List<GroupedGrant> grants, String pagingError) {
+    }
+
+    /**
+     * Reads Grist pages until there are more than {@code limit} distinct grants (so the last grant shown
+     * has all its records and we know whether more exist), the results run out, or {@code maxGristPages}
+     * pages have been read. A failure on page 1 fails the request (502/504); a failure on a later page
+     * stops paging and keeps what was already found.
+     */
+    private GristPages fetchDistinctGrants(String gristQuery, String requestedName, int limit) {
+        List<Grant> records = new ArrayList<>();
+        List<GroupedGrant> grouped = List.of();
+        Long hitCount = null;
+        int pagesRead = 0;
+        String pagingError = null;
+
+        for (int page = 1; page <= maxGristPages; page++) {
+            GrantSearchResult result;
+            try {
+                result = gristClient.search(gristQuery, page);
+            } catch (UpstreamException e) {
+                if (page == 1) {
+                    throw e;
+                }
+                log.warn("Stopped reading Grants API pages at page {}: {}", page, e.getMessage());
+                pagingError = e.getMessage();
+                break;
+            }
+            pagesRead = page;
+            if (hitCount == null) {
+                hitCount = result.hitCount();
+            }
+            records.addAll(result.grants());
+            grouped = GrantGrouper.group(records, requestedName);
+
+            boolean lastPage = result.grants().size() < GristClient.PAGE_SIZE
+                    || (hitCount != null && records.size() >= hitCount);
+            if (grouped.size() > limit || lastPage) {
+                break;
+            }
+        }
+        return new GristPages(hitCount, pagesRead, records.size(), grouped, pagingError);
+    }
+
+    private List<GrantEntry> lookUpPublications(List<GroupedGrant> grants, int perGrant) {
         // Submit everything first so lookups overlap; the semaphore bounds actual parallelism.
         List<Future<GrantEntry>> futures = new ArrayList<>(grants.size());
         for (int i = 0; i < grants.size(); i++) {
-            Grant grant = grants.get(i);
+            GroupedGrant grant = grants.get(i);
             int rank = i + 1;
-            futures.add(executor.submit(() -> lookUp(rank, grant, requestedName, perGrant)));
+            futures.add(executor.submit(() -> lookUp(rank, grant, perGrant)));
         }
 
         long deadlineNanos = System.nanoTime() + lookupDeadline.toNanos();
         List<GrantEntry> entries = new ArrayList<>(grants.size());
         for (int i = 0; i < futures.size(); i++) {
             Future<GrantEntry> future = futures.get(i);
-            Grant grant = grants.get(i);
-            String query = grant.hasId() ? QueryBuilder.articlesGrantIdQuery(grant.id()) : null;
+            GroupedGrant grant = grants.get(i);
+            String query = grant.representative().hasId()
+                    ? QueryBuilder.articlesGrantIdQuery(grant.representative().id()) : null;
             try {
                 long remaining = Math.max(0, deadlineNanos - System.nanoTime());
                 entries.add(future.get(remaining, TimeUnit.NANOSECONDS));
             } catch (TimeoutException e) {
                 future.cancel(true);
-                entries.add(failed(i + 1, grant, requestedName, query, "Publication lookup timed out"));
+                entries.add(failed(i + 1, grant, query, "Publication lookup timed out"));
             } catch (ExecutionException e) {
                 // lookUp() catches upstream errors itself; anything here is unexpected.
-                log.warn("Unexpected failure looking up publications for grant {}", grant.id(), e.getCause());
-                entries.add(failed(i + 1, grant, requestedName, query, "Publication lookup failed unexpectedly"));
+                log.warn("Unexpected failure looking up publications for grant {}",
+                        grant.representative().id(), e.getCause());
+                entries.add(failed(i + 1, grant, query, "Publication lookup failed unexpectedly"));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 futures.forEach(f -> f.cancel(true));
@@ -142,9 +209,10 @@ public class PortfolioService {
     }
 
     /** Runs on a worker thread. Never throws for upstream problems: they become LOOKUP_FAILED. */
-    private GrantEntry lookUp(int rank, Grant grant, String requestedName, int perGrant) throws InterruptedException {
+    private GrantEntry lookUp(int rank, GroupedGrant grouped, int perGrant) throws InterruptedException {
+        Grant grant = grouped.representative();
         if (!grant.hasId()) {
-            return entry(rank, grant, requestedName,
+            return entry(rank, grouped,
                     new PublicationLookup(LookupStatus.NOT_SEARCHED_NO_GRANT_ID, null, null, null), List.of());
         }
         String query = QueryBuilder.articlesGrantIdQuery(grant.id());
@@ -156,7 +224,7 @@ public class PortfolioService {
         } catch (UpstreamException e) {
             log.warn("Articles lookup failed for grant {}: {} ({})", grant.id(), e.getMessage(),
                     e.getCause() == null ? "no cause" : e.getCause().toString());
-            return failed(rank, grant, requestedName, query, e.getMessage());
+            return failed(rank, grouped, query, e.getMessage());
         } finally {
             articlePermits.release();
         }
@@ -170,7 +238,7 @@ public class PortfolioService {
         } else {
             status = LookupStatus.UNCERTAIN_ASSOCIATION;
         }
-        return entry(rank, grant, requestedName,
+        return entry(rank, grouped,
                 new PublicationLookup(status, query, result.hitCount(), null), publications);
     }
 
@@ -208,26 +276,21 @@ public class PortfolioService {
         return "UNKNOWN:" + System.identityHashCode(article);
     }
 
-    private GrantEntry failed(int rank, Grant grant, String requestedName, String query, String error) {
-        return entry(rank, grant, requestedName,
+    private GrantEntry failed(int rank, GroupedGrant grant, String query, String error) {
+        return entry(rank, grant,
                 new PublicationLookup(LookupStatus.LOOKUP_FAILED, query, null, error), List.of());
     }
 
-    private static GrantEntry entry(int rank, Grant grant, String requestedName,
+    private static GrantEntry entry(int rank, GroupedGrant grouped,
                                     PublicationLookup lookup, List<Publication> publications) {
+        Grant grant = grouped.representative();
         Funder funder = grant.funderName() == null && grant.funderFundRefId() == null
                 ? null : new Funder(grant.funderName(), grant.funderFundRefId());
         Institution institution = new Institution(grant.institutionName(), grant.institutionDepartment(),
-                nameMatch(requestedName, grant.institutionName()));
+                grant.institutionRorId(), grouped.nameMatch());
         return new GrantEntry(rank, grant.id(), grant.title(), funder, institution,
+                grouped.institutions().isEmpty() ? null : grouped.institutions(),
                 grant.principalInvestigator(), grant.startDate(), grant.endDate(), lookup, publications);
-    }
-
-    static NameMatch nameMatch(String requested, String reported) {
-        if (reported == null) {
-            return NameMatch.UNKNOWN;
-        }
-        return reported.trim().equalsIgnoreCase(requested) ? NameMatch.EXACT : NameMatch.PARTIAL;
     }
 
     private static PortfolioResponse.Summary summarise(List<GrantEntry> entries) {
@@ -254,7 +317,8 @@ public class PortfolioService {
                 entries.size(), byFunder, byStatus, associations, confirmed, associations - confirmed, unique.size());
     }
 
-    private static List<String> notes(boolean demo, boolean noGrants, boolean truncated) {
+    private static List<String> notes(boolean demo, GristPages found, int returned, int limit, boolean truncated) {
+        boolean noGrants = found.grants().isEmpty();
         List<String> notes = new ArrayList<>();
         if (demo) {
             notes.add("DEMO MODE: grants come from a bundled fixture, not the live Europe PMC Grants API. "
@@ -264,6 +328,18 @@ public class PortfolioService {
         if (noGrants) {
             notes.add("No grants matched this affiliation in the Europe PMC Grants API. Try a variant of the "
                     + "name (e.g. 'Univ of X', 'X University', or a distinctive word such as the city).");
+        }
+        if (found.records() > found.grants().size()) {
+            notes.add("The Grants API returns one record per person on a grant. " + found.records()
+                    + " records were merged into " + found.grants().size() + " distinct grants; "
+                    + "allInstitutions lists every institution named on a grant.");
+        }
+        if (found.pagingError() != null) {
+            notes.add("Stopped reading further Grants API pages after an error (" + found.pagingError()
+                    + "), so fewer grants may be shown than requested.");
+        } else if (!noGrants && returned < limit && truncated) {
+            notes.add("Only the first " + found.pages() + " Grants API pages were read, which held "
+                    + found.grants().size() + " distinct grants.");
         }
         if (truncated) {
             notes.add("More grants matched than were returned; this is a sample in Grants API order.");

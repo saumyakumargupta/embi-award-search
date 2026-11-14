@@ -12,13 +12,17 @@ import java.time.Duration;
 public record PortfolioProperties(Grist grist, Articles articles, Duration connectTimeout) {
 
     /**
-     * @param mode {@code live} (default) calls the Grants API; {@code demo} uses the bundled fixture
-     *             in {@code src/main/resources/demo/} while still calling the live Articles API
+     * @param mode     {@code live} (default) calls the Grants API; {@code demo} uses the bundled fixture
+     *                 in {@code src/main/resources/demo/} while still calling the live Articles API
+     * @param maxPages most Grist pages (25 records each) read to collect enough distinct grants
      */
-    public record Grist(String baseUrl, Duration readTimeout, Mode mode) {
+    public record Grist(String baseUrl, Duration readTimeout, Mode mode, int maxPages) {
         public Grist {
             if (mode == null) {
                 mode = Mode.LIVE;
+            }
+            if (maxPages < 1) {
+                maxPages = 3;
             }
         }
     }

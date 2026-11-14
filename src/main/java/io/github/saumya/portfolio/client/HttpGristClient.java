@@ -31,13 +31,14 @@ public class HttpGristClient implements GristClient {
     }
 
     @Override
-    public GrantSearchResult search(String gristQuery) {
-        return UpstreamCall.getJson(restClient, mapper, SERVICE, buildUri(gristQuery), GristResponseParser::parse);
+    public GrantSearchResult search(String gristQuery, int page) {
+        return UpstreamCall.getJson(restClient, mapper, SERVICE, buildUri(gristQuery, page),
+                GristResponseParser::parse);
     }
 
-    URI buildUri(String gristQuery) {
+    URI buildUri(String gristQuery, int page) {
         return URI.create(baseUrl + "/rest/get/query=" + encodePathValue(gristQuery)
-                + "&resultType=core&format=json&page=1");
+                + "&resultType=core&format=json&page=" + page);
     }
 
     /**

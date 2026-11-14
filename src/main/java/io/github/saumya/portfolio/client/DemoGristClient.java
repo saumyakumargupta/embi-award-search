@@ -41,7 +41,7 @@ public class DemoGristClient implements GristClient {
     }
 
     @Override
-    public GrantSearchResult search(String gristQuery) {
+    public GrantSearchResult search(String gristQuery, int page) {
         Matcher m = AFF_PHRASE.matcher(gristQuery);
         String phrase = (m.matches() ? m.group(1) : gristQuery).toLowerCase(Locale.ROOT);
 
@@ -54,9 +54,16 @@ public class DemoGristClient implements GristClient {
             }
         }
 
+        // Paginate the matches the same way Grist does: 25 records per page.
+        ArrayNode pageRecords = mapper.createArrayNode();
+        int from = (page - 1) * PAGE_SIZE;
+        for (int i = from; i < Math.min(matched.size(), from + PAGE_SIZE); i++) {
+            pageRecords.add(matched.get(i));
+        }
+
         ObjectNode response = mapper.createObjectNode();
         response.put("HitCount", matched.size());
-        response.putObject("RecordList").set("Record", matched);
+        response.putObject("RecordList").set("Record", pageRecords);
         return GristResponseParser.parse(response);
     }
 

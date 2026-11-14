@@ -54,6 +54,34 @@ class GristResponseParserTest {
     }
 
     @Test
+    void readsLiveFormatWithValueWrappersAndRorIds() throws Exception {
+        // Trimmed from a real aff:"University of Manchester" response (November 2026).
+        GrantSearchResult result = parse("""
+                {"HitCount": "3265",
+                 "Request": {"Query": "aff:\\"University of Manchester\\"", "ResultType": "Core", "Page": "1"},
+                 "RecordList": {"Record": [
+                   {"Person": {"FamilyName": "Trost", "GivenName": "Matthias", "Title": "Prof"},
+                    "Grant": {"Funder": {"Name": "Wellcome Trust", "FundRefID": "https://doi.org/10.13039/100010269"},
+                              "Id": "340947", "Title": "Type VI secretion effectors",
+                              "Abstract": {"value": "Long abstract", "Language": "en", "Type": "scientific"},
+                              "Amount": {"value": 201515.2, "Currency": "GBP"},
+                              "StartDate": "2026-09-01", "EndDate": "2032-09-01"},
+                    "Institution": {"Name": "University of Manchester", "RORID": "027m9bs27"}},
+                   {"Grant": {"Funder": {"Name": "NIHR"}, "Id": "NIHR306530"},
+                    "Institution": {"Name": "University of Cambridge", "RORID": "https://ror.org/013meh722"}}
+                 ]}}""");
+
+        assertThat(result.hitCount()).isEqualTo(3265L);
+        Grant first = result.grants().get(0);
+        assertThat(first.id()).isEqualTo("340947");
+        assertThat(first.funderFundRefId()).isEqualTo("https://doi.org/10.13039/100010269");
+        assertThat(first.institutionRorId()).isEqualTo("027m9bs27");
+        assertThat(first.principalInvestigator()).isEqualTo("Prof Matthias Trost");
+        // Both ROR spellings come out the same.
+        assertThat(result.grants().get(1).institutionRorId()).isEqualTo("013meh722");
+    }
+
+    @Test
     void emptySearchHasNoRecordList() throws Exception {
         GrantSearchResult result = parse("""
                 {"Request": {"Query": "aff:\\"Nowhere\\""}, "HitCount": 0}""");
