@@ -32,3 +32,8 @@ portfolio:
     max-concurrent: 4
     # Upper bound on waiting for one request's article lookups, including time queued for a permit.
     lookup-deadline: 20s
+    # fallback: call the live Articles API; if a call fails, use saved results from
+    #           src/main/resources/demo/articles-fixture.json for that grant (marked SAVED_FIXTURE).
+    # live:     never use saved results.   demo: always use saved results.
+    # Override with PORTFOLIO_ARTICLES_MODE=live (or demo).
+    mode: fallback

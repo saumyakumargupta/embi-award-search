@@ -58,6 +58,7 @@ class PortfolioControllerTest {
                 .andExpect(jsonPath("$.grants[0].funder.name").value("Medical Research Council"))
                 .andExpect(jsonPath("$.grants[0].institution.nameMatch").value("EXACT"))
                 .andExpect(jsonPath("$.grants[0].publicationLookup.status").value("PUBLICATIONS_FOUND"))
+                .andExpect(jsonPath("$.grants[0].publicationLookup.source").value("EUROPE_PMC_ARTICLES_API"))
                 .andExpect(jsonPath("$.grants[0].publications[0].key").value("MED:111"))
                 .andExpect(jsonPath("$.grants[0].publications[0].doi").value("10.1/abc"))
                 .andExpect(jsonPath("$.grants[0].publications[0].association").value("CONFIRMED"))

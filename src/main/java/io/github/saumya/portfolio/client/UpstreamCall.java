@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClientResponseException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.http.HttpTimeoutException;
+import java.util.concurrent.CancellationException;
 import java.util.function.Function;
 
 /** Executes a GET against a Europe PMC API and maps every failure to an {@link UpstreamException}. */
@@ -31,6 +32,11 @@ final class UpstreamCall {
         } catch (RestClientResponseException e) {
             throw new UpstreamException(service, UpstreamException.Kind.HTTP_ERROR, e.getStatusCode().value(),
                     service + " returned HTTP " + e.getStatusCode().value(), e);
+        } catch (CancellationException e) {
+            // Spring's JDK request factory enforces its read timeout by cancelling the request, which can
+            // surface as a bare CancellationException rather than a ResourceAccessException.
+            throw new UpstreamException(service, UpstreamException.Kind.TIMEOUT, null,
+                    service + " did not respond in time", e);
         } catch (ResourceAccessException e) {
             if (isTimeout(e)) {
                 throw new UpstreamException(service, UpstreamException.Kind.TIMEOUT, null,
@@ -54,7 +60,8 @@ final class UpstreamCall {
 
     private static boolean isTimeout(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause()) {
-            if (t instanceof HttpTimeoutException || t instanceof SocketTimeoutException) {
+            if (t instanceof HttpTimeoutException || t instanceof SocketTimeoutException
+                    || t instanceof CancellationException) {
                 return true;
             }
         }

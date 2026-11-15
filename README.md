@@ -42,6 +42,35 @@ the institution assignment is illustrative, and titles, PIs and dates are left o
 Demo responses are clearly marked with `grantSearch.source: "DEMO_FIXTURE"` and a note, and a warning
 is logged at startup. The default mode is `live`.
 
+### Saved Articles API data (when the Articles API is unavailable)
+
+The Articles API has also had outages (it returned HTTP 503 for every query on 14 November 2026).
+`src/main/resources/demo/articles-fixture.json` holds **real** Articles API results captured on
+15 November 2026 for 89 grants: every grant in the demo fixture plus the first live grants for
+Cambridge, Manchester, UCL, Edinburgh and Oxford. Each entry is the response to `GRANT_ID:"<id>"`
+(`resultType=core`, up to 5 papers), trimmed to the fields the service reads, and it is read by the
+same parser as a live response.
+
+`portfolio.articles.mode` (environment variable `PORTFOLIO_ARTICLES_MODE`) decides when it is used:
+
+| Mode | Behaviour |
+|---|---|
+| `fallback` (default) | Call the live Articles API. If a call fails (timeout, HTTP error, unreachable), use the saved result for that grant if there is one; otherwise report `LOOKUP_FAILED`. A successful live answer is always used, even an empty one. |
+| `live` | Never use saved data. |
+| `demo` | Always use saved data; grants with no saved entry are `LOOKUP_FAILED`. |
+
+Every grant says where its papers came from in `publicationLookup.source`: `EUROPE_PMC_ARTICLES_API`
+or `SAVED_FIXTURE`. When any grant used saved data, a `SAVED DATA` note lists those grants. A grant
+missing from the file is never reported as "no publications", because a missing entry says nothing
+about the grant.
+
+```bash
+# both Europe PMC APIs replaced by saved data:
+docker run --rm -p 8080:8080 -e PORTFOLIO_GRIST_MODE=demo -e PORTFOLIO_ARTICLES_MODE=demo institution-portfolio
+# strictly live, no saved data:
+docker run --rm -p 8080:8080 -e PORTFOLIO_ARTICLES_MODE=live institution-portfolio
+```
+
 ## Example requests
 
 ```bash
@@ -92,8 +121,8 @@ Errors use RFC 9457 `application/problem+json`, with `parameter` for 400s and `u
     "institution": { "name": "University of Manchester", "rorId": "027m9bs27", "nameMatch": "EXACT" },
     "allInstitutions": [ "University of Illinois Chicago", "University of Dundee", "...", "University of Manchester" ],
     "principalInvestigator": "...", "startDate": "2026-09-01", "endDate": "2032-09-01",
-    "publicationLookup": { "status": "PUBLICATIONS_FOUND", "query": "GRANT_ID:\"098051\"",
-                           "totalHitCount": 1261 },
+    "publicationLookup": { "status": "PUBLICATIONS_FOUND", "source": "EUROPE_PMC_ARTICLES_API",
+                           "query": "GRANT_ID:\"340947\"", "totalHitCount": 1 },
     "publications": [{
       "key": "MED:42720975",                     // stable identity: source + id
       "source": "MED", "id": "42720975", "pmid": "...", "pmcid": "...", "doi": "10.7554/elife.111066",
@@ -222,8 +251,11 @@ where present.
 * Each lookup catches its own `UpstreamException`, so one failure marks one grant and the rest of the
   response is unaffected. Only a Grist failure fails the whole request (502/504), because without
   grants there is nothing to return.
-* No retries. With a 20 s budget and a shared API, a retry storm is a worse failure mode than one
-  clearly reported failed lookup.
+* No retries against the live API. With a 20 s budget and a shared API, a retry storm is a worse
+  failure mode than one clearly reported failed lookup. In `fallback` mode a failed lookup is answered
+  from saved data instead, which costs Europe PMC nothing (see "Saved Articles API data").
+* Spring's JDK request factory enforces its read timeout by cancelling the request, which can surface
+  as a bare `CancellationException`. Seen live; it is mapped to a timeout like any other.
 * The HTTP client uses HTTP/1.1 and the JVM's default `ProxySelector`, so it works behind a
   corporate proxy configured with `-Dhttps.proxyHost`.
 
@@ -232,16 +264,17 @@ All tunables are in `application.yml` and can be overridden with environment var
 
 ## Tests
 
-`./mvnw test` runs 47 tests with no network access:
+`./mvnw test` runs 55 tests with no network access:
 
 | Test class | What it covers |
 |---|---|
 | `QueryBuilderTest` | Phrase construction, whitespace cleaning, phrase-injection, accents and `&`, rejected input |
-| `HttpClientsTest` | Exact encoded Grist path and Articles URL; parsing; 503 and HTML-body error mapping (MockRestServiceServer) |
+| `HttpClientsTest` | Exact encoded Grist path and Articles URL; parsing; 503, HTML-body and cancelled-request error mapping (MockRestServiceServer) |
 | `GristResponseParserTest` | Normal records, single record as an object, missing fields, empty result, and the live format (`value` wrappers, both ROR ID spellings) |
 | `GrantGrouperTest` | Per-person records merged into one grant in first-appearance order, best-matching record chosen, same ID from different funders kept apart, `nameMatch` values |
 | `PublicationLinkerTest` | Confirmed, funder mismatch, unknown funder, no exact ID, DOI-form IDs |
 | `PortfolioServiceTest` | Order preserved under reversed completion; failure and timeout isolation; failed vs none-found; concurrency never exceeds the limit but does overlap; per-grant dedup with cross-grant duplicates kept; grants with no ID; limits; reading more pages until enough distinct grants, the page cap, and failure on a later page vs the first |
+| `SavedArticlesTest` | Saved data answers like the live API but flagged and capped at page size; a grant with no saved data is a failure, not "none found"; fallback uses live whenever live answers (even empty), saved data only when live fails, and reports the live failure when nothing is saved |
 | `DemoGristClientTest` | Demo fixture filtering by affiliation, case-insensitive partial match, unknown institution |
 | `PortfolioControllerTest` | Full Spring wiring: JSON shape, defaults, 400s, 502 and 504 |
 
@@ -260,6 +293,8 @@ All tunables are in `application.yml` and can be overridden with environment var
 * Publications are taken in Articles API relevance order, so uncertain matches can take slots that
   a confirmed match lower down would have filled.
 * No caching. Repeated requests for the same university repeat every upstream call.
+* Saved Articles data goes out of date and covers only 89 grants. It is labelled on every grant that
+  uses it, and `fallback` only uses it when the live call has already failed.
 
 ## Review of my solution
 

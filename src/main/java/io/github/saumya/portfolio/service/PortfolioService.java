@@ -124,7 +124,7 @@ public class PortfolioService {
                         grants.size(), truncated),
                 entries,
                 summarise(entries),
-                notes(gristClient.isDemo(), found, grants.size(), limit, truncated));
+                notes(gristClient.isDemo(), found, grants.size(), limit, truncated, entries));
     }
 
     /** What was read from Grist: totals, and the distinct grants in Grist order. */
@@ -213,7 +213,7 @@ public class PortfolioService {
         Grant grant = grouped.representative();
         if (!grant.hasId()) {
             return entry(rank, grouped,
-                    new PublicationLookup(LookupStatus.NOT_SEARCHED_NO_GRANT_ID, null, null, null), List.of());
+                    new PublicationLookup(LookupStatus.NOT_SEARCHED_NO_GRANT_ID, null, null, null, null), List.of());
         }
         String query = QueryBuilder.articlesGrantIdQuery(grant.id());
 
@@ -239,7 +239,9 @@ public class PortfolioService {
             status = LookupStatus.UNCERTAIN_ASSOCIATION;
         }
         return entry(rank, grouped,
-                new PublicationLookup(status, query, result.hitCount(), null), publications);
+                new PublicationLookup(status,
+                        result.fromFixture() ? PortfolioResponse.SOURCE_SAVED_ARTICLES : PortfolioResponse.SOURCE_LIVE_ARTICLES,
+                        query, result.hitCount(), null), publications);
     }
 
     /**
@@ -278,7 +280,7 @@ public class PortfolioService {
 
     private GrantEntry failed(int rank, GroupedGrant grant, String query, String error) {
         return entry(rank, grant,
-                new PublicationLookup(LookupStatus.LOOKUP_FAILED, query, null, error), List.of());
+                new PublicationLookup(LookupStatus.LOOKUP_FAILED, null, query, null, error), List.of());
     }
 
     private static GrantEntry entry(int rank, GroupedGrant grouped,
@@ -317,7 +319,8 @@ public class PortfolioService {
                 entries.size(), byFunder, byStatus, associations, confirmed, associations - confirmed, unique.size());
     }
 
-    private static List<String> notes(boolean demo, GristPages found, int returned, int limit, boolean truncated) {
+    private static List<String> notes(boolean demo, GristPages found, int returned, int limit, boolean truncated,
+                                      List<GrantEntry> entries) {
         boolean noGrants = found.grants().isEmpty();
         List<String> notes = new ArrayList<>();
         if (demo) {
@@ -343,6 +346,15 @@ public class PortfolioService {
         }
         if (truncated) {
             notes.add("More grants matched than were returned; this is a sample in Grants API order.");
+        }
+        List<String> saved = entries.stream()
+                .filter(e -> PortfolioResponse.SOURCE_SAVED_ARTICLES.equals(e.publicationLookup().source()))
+                .map(e -> e.grantId())
+                .toList();
+        if (!saved.isEmpty()) {
+            notes.add("SAVED DATA: publications for " + saved.size() + " grant(s) come from saved Articles API "
+                    + "results (publicationLookup.source = SAVED_FIXTURE), not a live call: " + String.join(", ", saved)
+                    + ". They were real when captured but may be out of date.");
         }
         notes.add("The Grants API indexes awards from participating funders only, and affiliation names vary, "
                 + "so these grants are not the institution's full funding portfolio.");

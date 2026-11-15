@@ -3,6 +3,8 @@ package io.github.saumya.portfolio.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.saumya.portfolio.client.ArticlesClient;
 import io.github.saumya.portfolio.client.DemoGristClient;
+import io.github.saumya.portfolio.client.FallbackArticlesClient;
+import io.github.saumya.portfolio.client.FixtureArticlesClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.saumya.portfolio.client.GristClient;
@@ -53,8 +55,23 @@ public class PortfolioConfig {
 
     @Bean
     ArticlesClient articlesClient(HttpClient httpClient, ObjectMapper mapper, PortfolioProperties props) {
-        return new HttpArticlesClient(restClient(httpClient, props.articles().readTimeout()), mapper,
+        ArticlesClient live = new HttpArticlesClient(restClient(httpClient, props.articles().readTimeout()), mapper,
                 props.articles().baseUrl());
+        return switch (props.articles().mode()) {
+            case LIVE -> live;
+            case DEMO -> {
+                FixtureArticlesClient saved = new FixtureArticlesClient(mapper, FixtureArticlesClient.DEFAULT_FIXTURE);
+                log.warn("ARTICLES DEMO MODE: publications come from saved data captured on {} ({} grants), "
+                        + "not the live Articles API.", saved.capturedOn(), saved.size());
+                yield saved;
+            }
+            case FALLBACK -> {
+                FixtureArticlesClient saved = new FixtureArticlesClient(mapper, FixtureArticlesClient.DEFAULT_FIXTURE);
+                log.info("Articles fallback enabled: if the live Articles API fails, saved data captured on {} "
+                        + "({} grants) is used for those grants.", saved.capturedOn(), saved.size());
+                yield new FallbackArticlesClient(live, saved);
+            }
+        };
     }
 
     @Bean(destroyMethod = "close")

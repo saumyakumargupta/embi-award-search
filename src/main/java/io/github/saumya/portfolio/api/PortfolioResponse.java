@@ -80,14 +80,23 @@ public record PortfolioResponse(
      */
     public enum NameMatch { EXACT, PARTIAL, OTHER, UNKNOWN }
 
-    /** Outcome of the Articles API lookup for one grant. */
+    /**
+     * Outcome of the Articles API lookup for one grant. {@code source} says where the publications came
+     * from: {@code EUROPE_PMC_ARTICLES_API} (a live call) or {@code SAVED_FIXTURE} (saved Articles API data,
+     * used when the live call failed in fallback mode, or always in demo mode). It is absent when the
+     * lookup failed or was not attempted.
+     */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record PublicationLookup(
             LookupStatus status,
+            String source,
             String query,
             Long totalHitCount,
             String error) {
     }
+
+    public static final String SOURCE_LIVE_ARTICLES = "EUROPE_PMC_ARTICLES_API";
+    public static final String SOURCE_SAVED_ARTICLES = "SAVED_FIXTURE";
 
     public enum LookupStatus {
         /** At least one returned publication is a confirmed association. */

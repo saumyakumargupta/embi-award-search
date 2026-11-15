@@ -203,6 +203,19 @@ class PortfolioServiceTest {
         assertThatThrownBy(() -> service.buildPortfolio("Leeds", 5, 6)).isInstanceOf(InvalidRequestException.class);
     }
 
+    @Test
+    void savedArticlesDataIsLabelledPerGrantAndInNotes() {
+        PortfolioService service = service(List.of(grant("LIVE1"), grant("SAVED1")), id -> id.equals("SAVED1")
+                ? new ArticleSearchResult(1, List.of(paper("P1", id)), true)
+                : new ArticleSearchResult(1, List.of(paper("P2", id))), 2, Duration.ofSeconds(5));
+
+        PortfolioResponse response = service.buildPortfolio("University of Cambridge", 2, 1);
+
+        assertThat(response.grants()).extracting(g -> g.publicationLookup().source())
+                .containsExactly("EUROPE_PMC_ARTICLES_API", "SAVED_FIXTURE");
+        assertThat(response.notes()).anySatisfy(n -> assertThat(n).startsWith("SAVED DATA").contains("SAVED1"));
+    }
+
     /** 25 records for 5 grants (one per person), like a real Grist page for a well-connected grant. */
     private static List<Grant> pageOfDuplicates(String prefix) {
         List<Grant> records = new ArrayList<>();

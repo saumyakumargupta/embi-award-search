@@ -68,6 +68,20 @@ class HttpClientsTest {
     }
 
     @Test
+    void cancelledRequestCountsAsTimeout() {
+        // Seen live: Spring's JDK client enforces its read timeout by cancelling the request.
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(org.hamcrest.Matchers.anything()))
+                .andRespond(request -> { throw new java.util.concurrent.CancellationException(); });
+        HttpArticlesClient client = new HttpArticlesClient(builder.build(), mapper, "https://example.org/rest");
+
+        assertThatThrownBy(() -> client.search("GRANT_ID:\"1\"", 1))
+                .isInstanceOfSatisfying(UpstreamException.class,
+                        e -> assertThat(e.kind()).isEqualTo(UpstreamException.Kind.TIMEOUT));
+    }
+
+    @Test
     void mapsHttpErrorsAndUnreadableBodies() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

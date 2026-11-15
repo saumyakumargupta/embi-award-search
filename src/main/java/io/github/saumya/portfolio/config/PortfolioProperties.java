@@ -32,7 +32,17 @@ public record PortfolioProperties(Grist grist, Articles articles, Duration conne
     /**
      * @param maxConcurrent  Articles API calls allowed in flight at once, across all requests
      * @param lookupDeadline overall wait for all of one request's article lookups (queueing included)
+     * @param mode           {@code fallback} (default): live, but use saved data for a grant if the live call
+     *                       fails; {@code live}: never use saved data; {@code demo}: always use saved data
      */
-    public record Articles(String baseUrl, Duration readTimeout, int maxConcurrent, Duration lookupDeadline) {
+    public record Articles(String baseUrl, Duration readTimeout, int maxConcurrent, Duration lookupDeadline,
+                           ArticlesMode mode) {
+        public Articles {
+            if (mode == null) {
+                mode = ArticlesMode.FALLBACK;
+            }
+        }
     }
+
+    public enum ArticlesMode { LIVE, FALLBACK, DEMO }
 }
