@@ -216,6 +216,46 @@ class PortfolioServiceTest {
         assertThat(response.notes()).anySatisfy(n -> assertThat(n).startsWith("SAVED DATA").contains("SAVED1"));
     }
 
+    @Test
+    void grantSearchKeepsExactIdsOnlyAndShowsEachFunderSeparately() {
+        List<String> queries = new ArrayList<>();
+        GristClient grist = (q, page) -> {
+            queries.add(q);
+            return new GrantSearchResult(4L, List.of(
+                    new Grant("12345", "a", "Wellcome Trust", null, "University of Leeds", null, null, null, null),
+                    new Grant("12345", "a", "Wellcome Trust", null, "University of York", null, null, null, null),
+                    new Grant("12345", "b", "Cancer Research UK", null, "University of Bath", null, null, null, null),
+                    new Grant("12345/Z/20/Z", "c", "Wellcome Trust", null, "UCL", null, null, null, null)));
+        };
+        PortfolioService service = new PortfolioService(grist,
+                (q, size) -> new ArticleSearchResult(0, List.of()), executor, 2, Duration.ofSeconds(5));
+
+        PortfolioResponse response = service.buildGrantPortfolio(" 12345 ", 2);
+
+        assertThat(queries).containsExactly("gid:\"12345\"");
+        assertThat(response.request().grantId()).isEqualTo("12345");
+        assertThat(response.request().institution()).isNull();
+        // Two funders share the number: two grants. The longer ID is a near miss, not a match.
+        assertThat(response.grants()).extracting(g -> g.funder().name())
+                .containsExactly("Wellcome Trust", "Cancer Research UK");
+        assertThat(response.grants().get(0).allInstitutions()).containsExactly("University of Leeds", "University of York");
+        assertThat(response.grants().get(0).institution().nameMatch()).isNull();
+        assertThat(response.notes()).anySatisfy(n -> assertThat(n).startsWith("Several funders use this grant ID"));
+    }
+
+    @Test
+    void grantSearchWithNoExactMatchSaysSoAndListsNearMisses() {
+        GristClient grist = (q, page) -> new GrantSearchResult(1L, List.of(
+                new Grant("12345/Z/20/Z", "c", "Wellcome Trust", null, "UCL", null, null, null, null)));
+        PortfolioResponse response = new PortfolioService(grist,
+                (q, size) -> { throw new AssertionError("no lookups expected"); }, executor, 2, Duration.ofSeconds(5))
+                .buildGrantPortfolio("12345", 2);
+
+        assertThat(response.grants()).isEmpty();
+        assertThat(response.notes()).anySatisfy(n -> assertThat(n)
+                .startsWith("No grant with exactly this ID").contains("12345/Z/20/Z"));
+    }
+
     /** 25 records for 5 grants (one per person), like a real Grist page for a well-connected grant. */
     private static List<Grant> pageOfDuplicates(String prefix) {
         List<Grant> records = new ArrayList<>();

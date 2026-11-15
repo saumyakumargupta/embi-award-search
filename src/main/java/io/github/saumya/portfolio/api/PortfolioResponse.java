@@ -16,9 +16,11 @@ public record PortfolioResponse(
         List<String> notes) {
 
     /** What was asked for, and the exact upstream query it became. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     public record Request(
             String institution,
             String normalisedInstitution,
+            String grantId,
             String grantsQuery,
             int limit,
             int publicationsPerGrant) {

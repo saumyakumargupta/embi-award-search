@@ -32,4 +32,20 @@ public class PortfolioController {
             @RequestParam(defaultValue = "" + DEFAULT_PUBLICATIONS_PER_GRANT) int publicationsPerGrant) {
         return service.buildPortfolio(institution, limit, publicationsPerGrant);
     }
+
+    /**
+     * {@code GET /grant-portfolio?grantId=MR%2FL011840%2F1&publicationsPerGrant=3}
+     *
+     * <p>The grant number is a query parameter, not part of the path, because grant IDs often contain
+     * slashes. The response has the same shape as an institution search.
+     *
+     * @param grantId              grant number as written by the funder, e.g. {@code 098051} or {@code MR/L011840/1}
+     * @param publicationsPerGrant publications per grant, 1-5 (default 3)
+     */
+    @GetMapping(path = "/grant-portfolio", produces = MediaType.APPLICATION_JSON_VALUE)
+    public PortfolioResponse grantPortfolio(
+            @RequestParam String grantId,
+            @RequestParam(defaultValue = "" + DEFAULT_PUBLICATIONS_PER_GRANT) int publicationsPerGrant) {
+        return service.buildGrantPortfolio(grantId, publicationsPerGrant);
+    }
 }

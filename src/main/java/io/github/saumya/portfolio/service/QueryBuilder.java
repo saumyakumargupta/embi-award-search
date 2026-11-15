@@ -45,6 +45,36 @@ public final class QueryBuilder {
         return name;
     }
 
+    public static final int MAX_GRANT_ID_LENGTH = 100;
+
+    /**
+     * Cleans a user-supplied grant number the same way as a name: no control characters, no quote marks
+     * or backslashes that could break out of the phrase, single spaces. Grant IDs are short, so the
+     * limit is 100 characters, and at least one letter or digit is required.
+     */
+    public static String normaliseGrantId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new InvalidRequestException("grantId", "grantId is required");
+        }
+        String id = Normalizer.normalize(raw, Normalizer.Form.NFC);
+        id = CONTROL_CHARS.matcher(id).replaceAll(" ");
+        id = PHRASE_BREAKERS.matcher(id).replaceAll(" ");
+        id = WHITESPACE.matcher(id).replaceAll(" ").trim();
+        if (id.length() > MAX_GRANT_ID_LENGTH) {
+            throw new InvalidRequestException("grantId",
+                    "grantId must be at most " + MAX_GRANT_ID_LENGTH + " characters");
+        }
+        if (!HAS_LETTER_OR_DIGIT.matcher(id).find()) {
+            throw new InvalidRequestException("grantId", "grantId must contain a letter or digit");
+        }
+        return id;
+    }
+
+    /** {@code gid:"<id>"}: Grist's documented grant-ID field, for an already-normalised ID. */
+    public static String gristGrantIdQuery(String normalisedGrantId) {
+        return "gid:\"" + normalisedGrantId + "\"";
+    }
+
     /** {@code aff:"<name>"} for an already-normalised name. */
     public static String gristAffiliationQuery(String normalisedName) {
         return "aff:\"" + normalisedName + "\"";

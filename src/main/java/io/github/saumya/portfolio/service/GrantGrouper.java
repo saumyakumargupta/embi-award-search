@@ -30,6 +30,10 @@ public final class GrantGrouper {
     private GrantGrouper() {
     }
 
+    /**
+     * @param requestedName the institution the user asked for, or null when searching by grant ID. With
+     *                      null, each grant is represented by its first record and has no name match.
+     */
     public static List<GroupedGrant> group(List<Grant> records, String requestedName) {
         Map<String, List<Grant>> byGrant = new LinkedHashMap<>();
         int anonymous = 0;
@@ -42,11 +46,14 @@ public final class GrantGrouper {
         List<GroupedGrant> grants = new ArrayList<>(byGrant.size());
         for (List<Grant> group : byGrant.values()) {
             Grant best = group.get(0);
-            NameMatch bestMatch = nameMatch(requestedName, best.institutionName());
+            NameMatch bestMatch = requestedName == null ? null : nameMatch(requestedName, best.institutionName());
             Set<String> institutions = new LinkedHashSet<>();
             for (Grant record : group) {
                 if (record.institutionName() != null) {
                     institutions.add(record.institutionName());
+                }
+                if (requestedName == null) {
+                    continue;
                 }
                 NameMatch match = nameMatch(requestedName, record.institutionName());
                 if (match.ordinal() < bestMatch.ordinal()) {

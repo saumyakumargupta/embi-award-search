@@ -56,6 +56,17 @@ class QueryBuilderTest {
     }
 
     @Test
+    void grantIdBecomesGidPhraseAndCannotBreakOut() {
+        assertThat(QueryBuilder.gristGrantIdQuery(QueryBuilder.normaliseGrantId("  MR/L011840/1 ")))
+                .isEqualTo("gid:\"MR/L011840/1\"");
+        assertThat(QueryBuilder.gristGrantIdQuery(QueryBuilder.normaliseGrantId("123\" OR aff:\"x")))
+                .isEqualTo("gid:\"123 OR aff: x\"");
+        assertThatThrownBy(() -> QueryBuilder.normaliseGrantId("\"\"")).isInstanceOf(InvalidRequestException.class);
+        assertThatThrownBy(() -> QueryBuilder.normaliseGrantId(" ")).isInstanceOf(InvalidRequestException.class);
+        assertThatThrownBy(() -> QueryBuilder.normaliseGrantId("A".repeat(101))).isInstanceOf(InvalidRequestException.class);
+    }
+
+    @Test
     void escapesGrantIdForArticlesQuery() {
         assertThat(QueryBuilder.articlesGrantIdQuery(" 098051 ")).isEqualTo("GRANT_ID:\"098051\"");
         assertThat(QueryBuilder.articlesGrantIdQuery("AB\"12")).isEqualTo("GRANT_ID:\"AB\\\"12\"");

@@ -27,6 +27,7 @@ public class DemoGristClient implements GristClient {
     public static final String DEFAULT_FIXTURE = "demo/grist-demo-records.json";
 
     private static final Pattern AFF_PHRASE = Pattern.compile("^aff:\"(.*)\"$");
+    private static final Pattern GID_PHRASE = Pattern.compile("^gid:\"(.*)\"$");
 
     private final ObjectMapper mapper;
     private final JsonNode records;
@@ -42,15 +43,26 @@ public class DemoGristClient implements GristClient {
 
     @Override
     public GrantSearchResult search(String gristQuery, int page) {
-        Matcher m = AFF_PHRASE.matcher(gristQuery);
-        String phrase = (m.matches() ? m.group(1) : gristQuery).toLowerCase(Locale.ROOT);
-
         ArrayNode matched = mapper.createArrayNode();
-        for (JsonNode record : Json.list(records)) {
-            JsonNode institution = Json.child(record, "Institution");
-            if (contains(Json.text(institution, "Name"), phrase)
-                    || contains(Json.text(institution, "Department"), phrase)) {
-                matched.add(record);
+        Matcher gid = GID_PHRASE.matcher(gristQuery);
+        if (gid.matches()) {
+            // Grant-ID search: same ID, ignoring case.
+            String wanted = gid.group(1).trim();
+            for (JsonNode record : Json.list(records)) {
+                String id = Json.text(Json.child(record, "Grant"), "Id");
+                if (id != null && id.equalsIgnoreCase(wanted)) {
+                    matched.add(record);
+                }
+            }
+        } else {
+            Matcher m = AFF_PHRASE.matcher(gristQuery);
+            String phrase = (m.matches() ? m.group(1) : gristQuery).toLowerCase(Locale.ROOT);
+            for (JsonNode record : Json.list(records)) {
+                JsonNode institution = Json.child(record, "Institution");
+                if (contains(Json.text(institution, "Name"), phrase)
+                        || contains(Json.text(institution, "Department"), phrase)) {
+                    matched.add(record);
+                }
             }
         }
 

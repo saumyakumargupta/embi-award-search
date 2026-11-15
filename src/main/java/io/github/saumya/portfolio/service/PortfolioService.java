@@ -109,22 +109,63 @@ public class PortfolioService {
         String gristQuery = QueryBuilder.gristAffiliationQuery(normalised);
 
         GristPages found = fetchDistinctGrants(gristQuery, normalised, limit);
-        List<GroupedGrant> grants = found.grants().subList(0, Math.min(limit, found.grants().size()));
+        return respond(new PortfolioResponse.Request(institution, normalised, null, gristQuery, limit,
+                publicationsPerGrant), found, found.grants(), limit, publicationsPerGrant, List.of());
+    }
 
+    /**
+     * Looks up one grant number. Searches the Grants API with {@code gid:"<id>"} to find the grant's
+     * funder (needed to confirm papers), keeps only grants whose ID is exactly the one asked for, and then
+     * runs the same paper lookups as an institution search.
+     *
+     * <p>Grant numbers are not unique across funders, so several grants can come back, one per funder.
+     * Each is shown separately, with its own papers and checks.
+     */
+    public PortfolioResponse buildGrantPortfolio(String grantId, int publicationsPerGrant) {
+        if (publicationsPerGrant < 1 || publicationsPerGrant > MAX_PUBLICATIONS_PER_GRANT) {
+            throw new InvalidRequestException("publicationsPerGrant",
+                    "publicationsPerGrant must be between 1 and " + MAX_PUBLICATIONS_PER_GRANT);
+        }
+        String normalised = QueryBuilder.normaliseGrantId(grantId);
+        String gristQuery = QueryBuilder.gristGrantIdQuery(normalised);
+
+        GristPages found = fetchDistinctGrants(gristQuery, null, MAX_GRANTS);
+        // gid: is a word search, so it can also return grants whose ID only contains the one asked for.
+        String wanted = PublicationLinker.normaliseId(normalised);
+        List<GroupedGrant> exact = new ArrayList<>();
+        List<String> nearMisses = new ArrayList<>();
+        for (GroupedGrant g : found.grants()) {
+            String id = g.representative().id();
+            if (id != null && PublicationLinker.normaliseId(id).equals(wanted)) {
+                exact.add(g);
+            } else if (id != null && nearMisses.size() < 5) {
+                nearMisses.add(id);
+            }
+        }
+        return respond(new PortfolioResponse.Request(null, null, normalised, gristQuery, MAX_GRANTS,
+                publicationsPerGrant), found, exact, MAX_GRANTS, publicationsPerGrant, nearMisses);
+    }
+
+    /** Shared second half of both searches: paper lookups, summary and notes. */
+    private PortfolioResponse respond(PortfolioResponse.Request request, GristPages found,
+                                      List<GroupedGrant> candidates, int limit, int publicationsPerGrant,
+                                      List<String> nearMisses) {
+        List<GroupedGrant> grants = candidates.subList(0, Math.min(limit, candidates.size()));
         List<GrantEntry> entries = lookUpPublications(grants, publicationsPerGrant);
 
-        boolean truncated = found.grants().size() > grants.size()
+        boolean truncated = candidates.size() > grants.size()
                 || (found.hitCount() != null && found.records() < found.hitCount());
 
         return new PortfolioResponse(
-                new PortfolioResponse.Request(institution, normalised, gristQuery, limit, publicationsPerGrant),
+                request,
                 new PortfolioResponse.GrantSearch(
                         gristClient.isDemo() ? "DEMO_FIXTURE" : "EUROPE_PMC_GRANTS_API",
-                        found.hitCount(), found.pages(), found.records(), found.grants().size(),
+                        found.hitCount(), found.pages(), found.records(), candidates.size(),
                         grants.size(), truncated),
                 entries,
                 summarise(entries),
-                notes(gristClient.isDemo(), found, grants.size(), limit, truncated, entries));
+                notes(gristClient.isDemo(), request.grantId() != null, found, grants.size(), limit, truncated,
+                        entries, nearMisses));
     }
 
     /** What was read from Grist: totals, and the distinct grants in Grist order. */
@@ -319,18 +360,26 @@ public class PortfolioService {
                 entries.size(), byFunder, byStatus, associations, confirmed, associations - confirmed, unique.size());
     }
 
-    private static List<String> notes(boolean demo, GristPages found, int returned, int limit, boolean truncated,
-                                      List<GrantEntry> entries) {
-        boolean noGrants = found.grants().isEmpty();
+    private static List<String> notes(boolean demo, boolean byGrantId, GristPages found, int returned, int limit,
+                                      boolean truncated, List<GrantEntry> entries, List<String> nearMisses) {
+        boolean noGrants = returned == 0;
         List<String> notes = new ArrayList<>();
         if (demo) {
             notes.add("DEMO MODE: grants come from a bundled fixture, not the live Europe PMC Grants API. "
                     + "Grant IDs and funders are real, but the institution assignment is illustrative and titles, "
                     + "PIs and dates are absent. Publications are looked up live in the Articles API.");
         }
-        if (noGrants) {
+        if (noGrants && byGrantId) {
+            notes.add("No grant with exactly this ID was found in the Europe PMC Grants API, which only covers "
+                    + "participating funders. Check the ID, including slashes and suffixes."
+                    + (nearMisses.isEmpty() ? "" : " Similar IDs found: " + String.join(", ", nearMisses) + "."));
+        } else if (noGrants) {
             notes.add("No grants matched this affiliation in the Europe PMC Grants API. Try a variant of the "
                     + "name (e.g. 'Univ of X', 'X University', or a distinctive word such as the city).");
+        }
+        if (byGrantId && returned > 1) {
+            notes.add("Several funders use this grant ID. Each is shown as a separate grant, and papers are "
+                    + "checked against each funder separately.");
         }
         if (found.records() > found.grants().size()) {
             notes.add("The Grants API returns one record per person on a grant. " + found.records()
@@ -340,11 +389,11 @@ public class PortfolioService {
         if (found.pagingError() != null) {
             notes.add("Stopped reading further Grants API pages after an error (" + found.pagingError()
                     + "), so fewer grants may be shown than requested.");
-        } else if (!noGrants && returned < limit && truncated) {
+        } else if (!byGrantId && !noGrants && returned < limit && truncated) {
             notes.add("Only the first " + found.pages() + " Grants API pages were read, which held "
                     + found.grants().size() + " distinct grants.");
         }
-        if (truncated) {
+        if (truncated && !byGrantId) {
             notes.add("More grants matched than were returned; this is a sample in Grants API order.");
         }
         List<String> saved = entries.stream()
@@ -356,8 +405,10 @@ public class PortfolioService {
                     + "results (publicationLookup.source = SAVED_FIXTURE), not a live call: " + String.join(", ", saved)
                     + ". They were real when captured but may be out of date.");
         }
-        notes.add("The Grants API indexes awards from participating funders only, and affiliation names vary, "
-                + "so these grants are not the institution's full funding portfolio.");
+        if (!byGrantId) {
+            notes.add("The Grants API indexes awards from participating funders only, and affiliation names vary, "
+                    + "so these grants are not the institution's full funding portfolio.");
+        }
         notes.add("NO_PUBLICATIONS_FOUND means none were linked in Europe PMC, not that none exist.");
         return notes;
     }

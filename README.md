@@ -71,6 +71,20 @@ docker run --rm -p 8080:8080 -e PORTFOLIO_GRIST_MODE=demo -e PORTFOLIO_ARTICLES_
 docker run --rm -p 8080:8080 -e PORTFOLIO_ARTICLES_MODE=live institution-portfolio
 ```
 
+## Search page
+
+The brief doesn't require a user interface, and the JSON API is the main deliverable. For demos there
+is also a small search page, served by the same application at <http://localhost:8080/>. It is one
+static file (`src/main/resources/static/index.html`) with plain HTML and JavaScript calling the two
+endpoints below. There is no build step and nothing is loaded from the internet.
+
+* Search by **university name** or by **grant number**, choosing how many grants and papers to show.
+* Each grant shows its funder, institution, collaborators, a coloured lookup status, and its papers
+  with links to Europe PMC and the DOI, and whether each link is confirmed or uncertain (and why).
+* Demo grants and saved paper data are labelled, and 400, 502 and 504 errors are explained in words.
+* The search goes into the address bar, so `/?institution=University%20of%20Leeds` or
+  `/?grantId=098051` can be bookmarked or shared. "View the raw JSON" opens the API response.
+
 ## Example requests
 
 ```bash
@@ -78,6 +92,8 @@ curl "http://localhost:8080/institution-portfolio?institution=University%20of%20
 curl "http://localhost:8080/institution-portfolio?institution=University%20of%20Manchester"
 curl "http://localhost:8080/institution-portfolio?institution=University%20College%20London&limit=10&publicationsPerGrant=5"
 curl "http://localhost:8080/institution-portfolio?institution=University%20of%20Edinburgh&limit=3&publicationsPerGrant=1"
+curl "http://localhost:8080/grant-portfolio?grantId=MR%2FL011840%2F1&publicationsPerGrant=3"
+curl "http://localhost:8080/grant-portfolio?grantId=098051"
 curl "http://localhost:8080/actuator/health"
 ```
 
@@ -100,6 +116,19 @@ calls.
 | 400 | Missing, non-numeric or out-of-range parameter, or a name with nothing searchable |
 | 502 | The Grants API failed (unreachable, HTTP error, unreadable body) |
 | 504 | The Grants API timed out |
+
+### Search by grant number
+
+`GET /grant-portfolio?grantId=<id>&publicationsPerGrant=<1-5>` returns the same JSON shape for one
+grant number. The ID is a query parameter rather than part of the path because grant IDs often contain
+slashes (`MR/L011840/1`); encode them as `%2F`.
+
+A grant number alone isn't enough to confirm papers, because numbers are reused across funders. So the
+service first searches the Grants API with its grant-ID field, `gid:"<id>"`, to find the grant and its
+funder, then runs the same paper lookups and funder check as a university search. `gid:` is a word
+search, so only grants whose ID is exactly the one asked for are kept; if there are none, a note lists
+similar IDs that were found. If several funders use the number, each is shown as a separate grant.
+`request.grantId` replaces `request.institution`, and `institution.nameMatch` is omitted.
 
 Errors use RFC 9457 `application/problem+json`, with `parameter` for 400s and `upstreamService` /
 `failure` for 502/504.
@@ -264,19 +293,19 @@ All tunables are in `application.yml` and can be overridden with environment var
 
 ## Tests
 
-`./mvnw test` runs 55 tests with no network access:
+`./mvnw test` runs 61 tests with no network access:
 
 | Test class | What it covers |
 |---|---|
-| `QueryBuilderTest` | Phrase construction, whitespace cleaning, phrase-injection, accents and `&`, rejected input |
+| `QueryBuilderTest` | Phrase construction for names and grant IDs, whitespace cleaning, phrase-injection, accents and `&`, rejected input |
 | `HttpClientsTest` | Exact encoded Grist path and Articles URL; parsing; 503, HTML-body and cancelled-request error mapping (MockRestServiceServer) |
 | `GristResponseParserTest` | Normal records, single record as an object, missing fields, empty result, and the live format (`value` wrappers, both ROR ID spellings) |
 | `GrantGrouperTest` | Per-person records merged into one grant in first-appearance order, best-matching record chosen, same ID from different funders kept apart, `nameMatch` values |
 | `PublicationLinkerTest` | Confirmed, funder mismatch, unknown funder, no exact ID, DOI-form IDs |
-| `PortfolioServiceTest` | Order preserved under reversed completion; failure and timeout isolation; failed vs none-found; concurrency never exceeds the limit but does overlap; per-grant dedup with cross-grant duplicates kept; grants with no ID; limits; reading more pages until enough distinct grants, the page cap, and failure on a later page vs the first |
+| `PortfolioServiceTest` | Order preserved under reversed completion; failure and timeout isolation; failed vs none-found; concurrency never exceeds the limit but does overlap; per-grant dedup with cross-grant duplicates kept; grants with no ID; limits; reading more pages until enough distinct grants, the page cap, and failure on a later page vs the first; grant-number search keeping exact IDs only, one grant per funder, and a note with near misses |
 | `SavedArticlesTest` | Saved data answers like the live API but flagged and capped at page size; a grant with no saved data is a failure, not "none found"; fallback uses live whenever live answers (even empty), saved data only when live fails, and reports the live failure when nothing is saved |
 | `DemoGristClientTest` | Demo fixture filtering by affiliation, case-insensitive partial match, unknown institution |
-| `PortfolioControllerTest` | Full Spring wiring: JSON shape, defaults, 400s, 502 and 504 |
+| `PortfolioControllerTest` | Full Spring wiring: JSON shape, defaults, 400s, 502 and 504; the grant-number endpoint; the search page is served |
 
 ## Limitations
 
@@ -293,6 +322,11 @@ All tunables are in `application.yml` and can be overridden with environment var
 * Publications are taken in Articles API relevance order, so uncertain matches can take slots that
   a confirmed match lower down would have filled.
 * No caching. Repeated requests for the same university repeat every upstream call.
+* In a grant-number search there is no requested institution to prefer, so the grant is shown with the
+  institution on its first Grants API record, which may be a collaborator's. `allInstitutions` lists
+  them all.
+* The search page is a convenience for demos. It has no automated browser tests; it was checked by
+  hand in Chromium at desktop and phone widths, in light and dark mode.
 * Saved Articles data goes out of date and covers only 89 grants. It is labelled on every grant that
   uses it, and `fallback` only uses it when the live call has already failed.
 

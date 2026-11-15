@@ -66,6 +66,32 @@ class PortfolioControllerTest {
     }
 
     @Test
+    void grantEndpointTakesTheIdAsAQueryParameter() throws Exception {
+        when(grist.search("gid:\"MR/1\"", 1)).thenReturn(new GrantSearchResult(1L, List.of(
+                new Grant("MR/1", "A grant", "Medical Research Council", null, "University of Manchester",
+                        null, null, null, null))));
+        when(articles.search(eq("GRANT_ID:\"MR/1\""), anyInt())).thenReturn(new ArticleSearchResult(0, List.of()));
+
+        mvc.perform(get("/grant-portfolio").param("grantId", "MR/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.request.grantId").value("MR/1"))
+                .andExpect(jsonPath("$.request.institution").doesNotExist())
+                .andExpect(jsonPath("$.grants[0].grantId").value("MR/1"))
+                .andExpect(jsonPath("$.grants[0].publicationLookup.status").value("NO_PUBLICATIONS_FOUND"));
+        mvc.perform(get("/grant-portfolio"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.parameter").value("grantId"));
+    }
+
+    @Test
+    void servesTheSearchPage() throws Exception {
+        mvc.perform(get("/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .string(org.hamcrest.Matchers.containsString("<title>Institution Portfolio</title>")));
+    }
+
+    @Test
     void invalidInputIs400() throws Exception {
         mvc.perform(get("/institution-portfolio"))
                 .andExpect(status().isBadRequest())

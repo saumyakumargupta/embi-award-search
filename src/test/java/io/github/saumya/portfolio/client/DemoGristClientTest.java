@@ -33,6 +33,13 @@ class DemoGristClientTest {
     }
 
     @Test
+    void grantIdSearchMatchesTheIdExactly() {
+        GrantSearchResult result = client.search("gid:\"mr/l011840/1\"", 1);
+
+        assertThat(result.grants()).extracting(Grant::id).containsOnly("MR/L011840/1");
+    }
+
+    @Test
     void unknownInstitutionGivesEmptyResult() {
         GrantSearchResult result = client.search("aff:\"University of Nowhere\"", 1);
 
