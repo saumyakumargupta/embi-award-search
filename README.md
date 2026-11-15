@@ -4,7 +4,7 @@ A small Spring Boot REST API. Given a university name, it finds grants in the Eu
 (Grist) whose award-holder affiliation matches, then looks up publications linked to each grant in
 the Europe PMC Articles API. The caller never needs grant IDs or Grist query syntax.
 
-Java 21, Spring Boot 3.4, Maven. No database, no UI.
+Java 21, Spring Boot 3.4, Maven. No database. A small optional search page is included (see "Search page").
 
 ## Build, run and test
 
