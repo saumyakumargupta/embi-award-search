@@ -299,29 +299,56 @@ All tunables are in `application.yml` and can be overridden with environment var
 ## Review of my solution
 
 **Which design decision worked particularly well?**
-Keeping each lookup's failure inside its own result. Every article task returns a value, never throws,
-and results are collected by index. That single choice gave failure isolation, correct ordering under
-out-of-order completion, and a clear distinction between `NO_PUBLICATIONS_FOUND` and `LOOKUP_FAILED`.
-It also made the behaviour easy to test with plain lambdas instead of an HTTP mock.
+
+Making every paper lookup come back with an answer instead of throwing. `lookUp()` catches its own
+errors and returns an entry marked `LOOKUP_FAILED` with the reason, and the results are read back by
+their position in the list rather than in the order they finish.
+
+I didn't fully appreciate how much that bought me until Europe PMC started failing during testing. On
+14 November the Articles API returned 503 for every query, and the service still answered each
+request with a 200, every grant saying exactly what had gone wrong. When I later added the fallback to
+saved data, it slotted in as one more `ArticlesClient` wrapped around the live one, and
+`PortfolioService` didn't need to change at all. It also kept the tests simple: the fake clients are
+one-line lambdas, so the concurrency and failure tests run without a mock HTTP server.
 
 **What would I change or improve with more time?**
-Better institution matching: resolve the name to a ROR ID, try a small set of known variants, and
-rank exact affiliation matches first. I would also add a funder alias table (MRC/UKRI, NIH institutes,
-FundRef IDs), a short-lived cache keyed by query, and a contract test run on a schedule against live
-Europe PMC to catch schema drift.
+
+The matching, on both sides. For institutions, I'd resolve the name to a ROR ID before searching.
+Grist already puts a ROR ID on each record, so I could keep only the rows for the right organisation
+instead of trusting a phrase search on `aff:`, which also picks up departments and collaborators. For
+funders, I'd compare FundRef IDs instead of names. At the moment an MRC grant that a paper credits to
+"UK Research and Innovation" comes out as uncertain, and writing "&" instead of "and" is enough to
+break a match.
+
+I'd also replace the saved Articles file with a proper cache that refreshes itself, because the file is
+a snapshot from 15 November and will drift. And I'd add a small scheduled test against the live APIs.
+The biggest surprises in this project came from the real data, not from the code.
 
 **Which assumption about Europe PMC data would I validate before production?**
-What a Grist record represents. The Grist endpoint was unreachable for most of development, so the
-parser was written against the documented field model and made deliberately tolerant. When the API
-came back, the field names matched, but the assumption that one record is one grant did not: Grist
-returns one record per person, so the same grant appeared up to 8 times on a page and the first
-record could name a collaborator's institution. That is now handled by merging records and paging.
-Before production I would validate this further on many institutions (for example whether one grant's
-records are always adjacent, and how `HitCount` relates to distinct grants), and check how
-consistently `grantsList` agency names match Grist funder names, since that decides how many links
-are `CONFIRMED`.
+
+One of my assumptions has already turned out to be wrong. The Grants API was down for most of the week
+I built this, so I wrote the parser from the documentation and took each record to be a grant. When the
+API came back, each record turned out to be one person on a grant. Grant `352259` appeared eight times
+on the first Manchester page, and the first of those rows named a collaborator in Bristol. Merging rows
+by funder and grant ID fixed it, but I'd want to check this on many more institutions before relying on
+it: whether a grant's rows always sit next to each other, for example, and how `HitCount` relates to
+the number of distinct grants.
+
+The next assumption I'd test is that funder names in the two APIs line up well enough for my check to
+work. That check decides whether a link is confirmed, and so far I've only looked at it by hand. I'd
+measure what share of links come out confirmed for each funder across a few hundred grants.
 
 **Which piece of technical debt did I deliberately accept?**
-Funder matching by normalised string comparison instead of a curated funder identity map. It is simple
-and transparent, and when it is wrong it errs towards "uncertain" rather than "confirmed", but it will
-under-confirm some legitimate links until a proper mapping exists.
+
+The funder comparison. It lower-cases both names, strips the punctuation, and counts a match if one
+name contains the other. It's crude, and I chose it knowingly: a proper funder identity map didn't fit
+in three hours, and I'd rather have something anyone can read and reason about. What makes it
+acceptable is the direction it fails in. When it's wrong, a real link gets flagged as uncertain, rather
+than a false one being confirmed.
+
+It also earned its place during testing. Wellcome grant `340947` at Manchester shares its number with a
+Canadian (CIHR) grant, and the paper the Articles API returned belonged to the Canadian one. The check
+marked it as a funder mismatch instead of confirming it.
+
+The saved Articles file is a smaller piece of debt of the same kind. It's labelled clearly wherever
+it's used, but it's a snapshot, not a cache.
